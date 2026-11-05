@@ -1,0 +1,6 @@
+package: openai
+generate:
+  models: true
+output: ../internal/adapters/inbound/openai/types.gen.go
+output-options:
+  skip-prune: true

@@ -1,0 +1,378 @@
+{
+  "components": {
+    "schemas": {
+      "APIError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "nullable": true,
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "param": {
+            "nullable": true,
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "message",
+          "param",
+          "code"
+        ],
+        "type": "object"
+      },
+      "ChatMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "x-go-type": "json.RawMessage"
+          },
+          "role": {
+            "enum": [
+              "system",
+              "developer",
+              "user",
+              "assistant"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "role"
+        ],
+        "type": "object"
+      },
+      "ChatRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "model": {
+            "type": "string"
+          },
+          "n": {
+            "default": 1,
+            "example": 1,
+            "maximum": 128,
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "reasoning_effort": {
+            "type": "string"
+          },
+          "stream": {
+            "default": false,
+            "nullable": true,
+            "type": "boolean"
+          },
+          "stream_options": {
+            "$ref": "#/components/schemas/StreamOptions"
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ],
+        "type": "object"
+      },
+      "Chunk": {
+        "additionalProperties": false,
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkChoice"
+            },
+            "type": "array"
+          },
+          "created": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "object": {
+            "enum": [
+              "chat.completion.chunk"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        },
+        "required": [
+          "choices",
+          "created",
+          "id",
+          "model",
+          "object"
+        ],
+        "type": "object"
+      },
+      "ChunkChoice": {
+        "additionalProperties": false,
+        "properties": {
+          "delta": {
+            "$ref": "#/components/schemas/Delta"
+          },
+          "finish_reason": {
+            "enum": [
+              "stop",
+              "length",
+              "tool_calls",
+              "content_filter",
+              "function_call"
+            ],
+            "nullable": true,
+            "type": "string",
+            "x-go-type": "string"
+          },
+          "index": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "delta",
+          "index"
+        ],
+        "type": "object"
+      },
+      "Completion": {
+        "additionalProperties": false,
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/CompletionChoice"
+            },
+            "type": "array"
+          },
+          "created": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "object": {
+            "enum": [
+              "chat.completion"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        },
+        "required": [
+          "choices",
+          "created",
+          "id",
+          "model",
+          "object"
+        ],
+        "type": "object"
+      },
+      "CompletionChoice": {
+        "additionalProperties": false,
+        "properties": {
+          "finish_reason": {
+            "enum": [
+              "stop",
+              "length",
+              "tool_calls",
+              "content_filter",
+              "function_call"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ResponseMessage"
+          }
+        },
+        "required": [
+          "finish_reason",
+          "index",
+          "message"
+        ],
+        "type": "object"
+      },
+      "Delta": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "developer",
+              "system",
+              "user",
+              "assistant",
+              "tool"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/APIError"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "Model": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "enum": [
+              "model"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          },
+          "owned_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "owned_by"
+        ],
+        "type": "object"
+      },
+      "ModelList": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            },
+            "type": "array"
+          },
+          "object": {
+            "enum": [
+              "list"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          }
+        },
+        "required": [
+          "object",
+          "data"
+        ],
+        "type": "object"
+      },
+      "ResponseMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "assistant"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "type": "object"
+      },
+      "StreamOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "include_obfuscation": {
+            "type": "boolean"
+          },
+          "include_usage": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "Usage": {
+        "additionalProperties": false,
+        "properties": {
+          "completion_tokens": {
+            "default": 0,
+            "type": "integer"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Projected from https://raw.githubusercontent.com/openai/openai-openapi/85a23866c06a29098083ebb11d5ec70438305def/openapi.json; SHA-256 0e4dc3d7f52cc7d7c41940587b5ae23c0e3173bd4b4384f9d673ee90185ebafb.",
+    "title": "Harness-Gateway OpenAI text subset",
+    "version": "0.1.0"
+  },
+  "openapi": "3.0.3",
+  "paths": {}
+}
