@@ -431,7 +431,7 @@ The SDK's known already-closed TCP writer diagnostic is classified as debug;
 unexpected diagnostics remain visible as errors. Spring AI acceptance checks JSON
 log records through normal, streaming, and failed Copilot requests.
 
-### Windows launcher tests
+### CLI launcher tests
 
 Source builds support native Windows executables, npm `.cmd`/`.bat` entry points,
 and `.js` entry points using Node.js. Batch wrappers remain inside the gateway's
@@ -442,10 +442,11 @@ Windows CI runs the backend and version-probe suites directly and again through
 both `.cmd` and `.bat` wrappers. The fixtures cover discovery, buffered/SSE HTTP
 responses, failures, cancellation, descendant cleanup, and paths containing spaces,
 Unicode, percent signs, exclamation marks, and other shell metacharacters.
-A separate Windows job installs pinned public Codex/Copilot npm packages and
-tests their real entry points, version output, and protocol handshakes without
-account credentials or inference. This does not qualify authenticated Windows
-inference, which still requires a separate live acceptance run.
+A separate CI matrix installs pinned public Codex/Copilot npm packages on Linux,
+macOS, and Windows into private directories whose paths contain spaces. It tests
+their real entry points, version output, and protocol handshakes without account
+credentials or inference. Authenticated inference remains a separate live
+acceptance gate; Windows inference has not been qualified.
 Real-package version diagnostics allow 20 seconds for cold CLI initialization.
 The startup panel keeps its two-second budget and may report `unavailable` for a
 slow cold start; the smoke test also checks that bounded fallback.

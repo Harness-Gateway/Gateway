@@ -87,9 +87,17 @@ jobs:
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
-  windows-installed-clis:
-    runs-on: windows-latest
+  installed-clis:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    env:
+      HARNESS_GATEWAY_TEST_INSTALLED_CLIS: '1'
+      HARNESS_GATEWAY_TEST_CODEX_VERSION: '0.167.0'
+      HARNESS_GATEWAY_TEST_COPILOT_VERSION: '1.0.105'
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -101,19 +109,23 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '26'
-      - name: Install pinned public CLI packages without account credentials
+      - name: Install pinned public CLI packages on Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $prefix = Join-Path $env:RUNNER_TEMP 'Harness CLI tools'
-          npm.cmd install --global --prefix $prefix '@openai/codex@0.167.0' '@github/copilot@1.0.105'
+          npm.cmd install --global --prefix $prefix "@openai/codex@$env:HARNESS_GATEWAY_TEST_CODEX_VERSION" "@github/copilot@$env:HARNESS_GATEWAY_TEST_COPILOT_VERSION"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $prefix | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install pinned public CLI packages on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          prefix="$RUNNER_TEMP/Harness CLI tools"
+          npm install --global --prefix "$prefix" "@openai/codex@$HARNESS_GATEWAY_TEST_CODEX_VERSION" "@github/copilot@$HARNESS_GATEWAY_TEST_COPILOT_VERSION"
+          printf '%s\n' "$prefix/bin" >> "$GITHUB_PATH"
       - name: Test real npm shims, version probes, and protocol handshakes
         shell: bash
-        env:
-          HARNESS_GATEWAY_TEST_INSTALLED_CLIS: '1'
-          HARNESS_GATEWAY_TEST_CODEX_VERSION: '0.167.0'
-          HARNESS_GATEWAY_TEST_COPILOT_VERSION: '1.0.105'
         run: go test -v -count=1 -timeout=2m -run '^TestInstalledCLI' ./cmd/harness-gateway ./internal/adapters/outbound/codex ./internal/adapters/outbound/copilot
 
   spring-ai-acceptance:
