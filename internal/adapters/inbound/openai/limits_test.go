@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -149,6 +150,63 @@ func (w writeDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
 	}
 	*w.deadline = deadline
 	return nil
+}
+
+type failingStreamWriter struct {
+	*httptest.ResponseRecorder
+	mode                       string
+	failAt                     int
+	deadlines, writes, flushes int
+}
+
+func (w *failingStreamWriter) SetWriteDeadline(time.Time) error {
+	w.deadlines++
+	if w.mode == "deadline" && w.deadlines == w.failAt {
+		return os.ErrDeadlineExceeded
+	}
+	return nil
+}
+
+func (w *failingStreamWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.mode == "write" && w.writes == w.failAt {
+		return 0, os.ErrDeadlineExceeded
+	}
+	return w.ResponseRecorder.Write(p)
+}
+
+func (w *failingStreamWriter) FlushError() error {
+	w.flushes++
+	if w.mode == "flush" && w.flushes == w.failAt {
+		return os.ErrDeadlineExceeded
+	}
+	w.ResponseRecorder.Flush()
+	return nil
+}
+
+func TestStreamTransportFailureDoesNotRetryResponse(t *testing.T) {
+	for _, mode := range []string{"deadline", "write", "flush"} {
+		for _, failAt := range []int{1, 2} {
+			t.Run(fmt.Sprintf("%s/frame=%d", mode, failAt), func(t *testing.T) {
+				backend := harnessFunc(func(_ context.Context, request domain.Request, emit func(string) error) (domain.Result, error) {
+					if request.Messages[0].Text == "recover" {
+						return domain.Result{}, emit("recovered")
+					}
+					return domain.Result{}, emit("hello")
+				})
+				h := handler(backend, time.Second)
+				w := &failingStreamWriter{ResponseRecorder: httptest.NewRecorder(), mode: mode, failAt: failAt}
+				h.ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"codex","messages":[{"role":"user","content":"fail"}],"stream":true}`)))
+				if w.deadlines != failAt {
+					t.Fatalf("failed transport received another write budget: deadlines=%d want=%d", w.deadlines, failAt)
+				}
+				if strings.Contains(w.Body.String(), `"error"`) || strings.Contains(w.Body.String(), "[DONE]") {
+					t.Fatal("handler retried a response after transport failure")
+				}
+				assertRecovery(t, h)
+			})
+		}
+	}
 }
 
 func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {

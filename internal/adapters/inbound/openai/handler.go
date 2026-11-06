@@ -148,9 +148,13 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 	defer func() { h.logger.Info("completion finished", "request_id", id, "duration", time.Since(startedAt)) }()
 	started := false
 	wroteText := false
+	var responseErr error
 	size := 0
 	var text strings.Builder
 	chunk := func(delta Delta, finish *string, usage *Usage, choices bool) error {
+		if responseErr != nil {
+			return responseErr
+		}
 		if !started {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
@@ -161,7 +165,8 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 		if choices {
 			response.Choices = append(response.Choices, ChunkChoice{Index: 0, Delta: delta, FinishReason: finish})
 		}
-		return writeSSE(w, response)
+		responseErr = writeSSE(w, response)
+		return responseErr
 	}
 	emit := func(delta string) error {
 		if err := ctx.Err(); err != nil {
@@ -191,6 +196,12 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	result, err := h.gateway.Complete(ctx, request.Model, input, emit, accepted)
+	if responseErr != nil {
+		// The transport already failed. Writing an error frame would grant a
+		// stalled client another deadline and delay backend/handler cleanup.
+		h.logger.Warn("completion response write failed", "request_id", id, "model", request.Model, "error", responseErr)
+		return
+	}
 	if contextErr := ctx.Err(); contextErr != nil {
 		err = contextErr
 	}
