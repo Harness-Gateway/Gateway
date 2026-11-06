@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/harness-gateway/harness-gateway/internal/buildinfo"
 )
 
 type setupFixture struct {
@@ -82,7 +84,7 @@ func TestSetupDefaultVersionAndIdempotentBashPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.4\n"
+	want := "install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v" + buildinfo.Version + "\n"
 	if string(calls) != want+want {
 		t.Fatalf("wrong Go install command: %s", calls)
 	}

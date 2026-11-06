@@ -2,6 +2,7 @@ package setup
 
 import (
 	"archive/zip"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
@@ -10,23 +11,27 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/harness-gateway/harness-gateway/internal/buildinfo"
 )
 
-func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Bash setup targets Unix hosts")
-	}
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skip("Bash setup tests require bash")
-	}
+const modulePath = "github.com/harness-gateway/harness-gateway"
+const moduleVersion = "v" + buildinfo.Version
+
+type installFixture struct {
+	root, directory, bin string
+	env                  []string
+}
+
+func newInstallFixture(t *testing.T) installFixture {
+	t.Helper()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	const module = "github.com/harness-gateway/harness-gateway"
-	const version = "v0.1.4"
+	const module = modulePath
+	const version = moduleVersion
 	proxy := filepath.Join(directory, "proxy")
 	versions := filepath.Join(proxy, filepath.FromSlash(module), "@v")
 	if err := os.MkdirAll(versions, 0700); err != nil {
@@ -38,7 +43,7 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	}
 	for name, contents := range map[string][]byte{
 		version + ".mod":  mod,
-		version + ".info": []byte(`{"Version":"v0.1.4","Time":"2026-11-06T00:00:00Z"}`),
+		version + ".info": []byte(fmt.Sprintf(`{"Version":%q,"Time":"2026-11-06T00:00:00Z"}`, version)),
 		"list":            []byte(version + "\n"),
 	} {
 		if err := os.WriteFile(filepath.Join(versions, name), contents, 0600); err != nil {
@@ -111,39 +116,74 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 		}
 		return strings.TrimSpace(string(output))
 	}
-	fileURL := func(path string) string { return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String() }
+	fileURL := func(path string) string {
+		path = filepath.ToSlash(path)
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		return (&url.URL{Scheme: "file", Path: path}).String()
+	}
 	dependencyProxy := fileURL(filepath.Join(goEnv("GOMODCACHE"), "cache", "download"))
 	bin := filepath.Join(directory, "installed bin")
-	command := exec.CommandContext(t.Context(), bash, filepath.Join(root, "setup.sh"), "--bin-dir", bin, "--no-path")
-	command.Dir = directory // No go.mod, source checkout, or Git metadata here.
-	command.Env = append(os.Environ(),
-		"HOME="+directory, "GOMODCACHE="+filepath.Join(directory, "module-cache"),
+	env := append(os.Environ(),
+		"GOBIN="+bin, "GOMODCACHE="+filepath.Join(directory, "module-cache"),
 		"GOCACHE="+goEnv("GOCACHE"), "GOPROXY="+fileURL(proxy)+","+dependencyProxy,
-		"GOSUMDB=off", "GOPRIVATE=", "GONOPROXY=none", "GOTOOLCHAIN=local", "GOFLAGS=")
+		"GOSUMDB=off", "GOPRIVATE=", "GONOPROXY=none", "GONOSUMDB=", "GOWORK=off", "GOTOOLCHAIN=local", "GOFLAGS=")
 	t.Cleanup(func() {
 		// Go deliberately makes module-cache trees read-only. Let Go remove
 		// this private cache before testing.TempDir performs its own cleanup.
 		cleanup := exec.Command("go", "clean", "-modcache")
-		cleanup.Dir, cleanup.Env = directory, command.Env
+		cleanup.Dir, cleanup.Env = directory, env
 		if output, err := cleanup.CombinedOutput(); err != nil {
 			t.Errorf("clean private module cache: %v\n%s", err, output)
 		}
 	})
-	// This unpublished fixture and already-verified local dependency zip cache
-	// are isolated from the user's module cache and require no network access.
+	return installFixture{root, directory, bin, env}
+}
+
+func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
+	f := newInstallFixture(t)
+	command := exec.CommandContext(t.Context(), "go", "install", modulePath+"/cmd/harness-gateway@"+moduleVersion)
+	command.Dir, command.Env = f.directory, f.env
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("versioned Go installation failed: %v\n%s", err, output)
+	}
+	f.verify(t)
+}
+
+func TestVersionedBashInstallOutsideCheckout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Bash setup targets Unix hosts; native Go installation is tested separately")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("Bash setup tests require bash")
+	}
+	f := newInstallFixture(t)
+	command := exec.CommandContext(t.Context(), bash, filepath.Join(f.root, "setup.sh"), "--bin-dir", f.bin, "--no-path")
+	command.Dir, command.Env = f.directory, append(f.env, "HOME="+f.directory)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("versioned installation failed: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "Harness-Gateway v0.1.4 (module v0.1.4;") {
-		t.Fatalf("installed binary lost module provenance: %s", output)
-	}
-	output, err = exec.CommandContext(t.Context(), filepath.Join(bin, "harness-gateway"), "-v",
-		"--codex-path", filepath.Join(directory, "missing-codex"), "--copilot-path", filepath.Join(directory, "missing-copilot")).CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "module v0.1.4") {
-		t.Fatalf("installed command needs a source checkout or harness CLI: %v\n%s", err, output)
-	}
-	if _, err := os.Stat(filepath.Join(directory, ".bashrc")); !os.IsNotExist(err) {
+	f.verify(t)
+	if _, err := os.Stat(filepath.Join(f.directory, ".bashrc")); !os.IsNotExist(err) {
 		t.Fatal("--no-path changed Bash settings")
+	}
+}
+
+func (f installFixture) verify(t *testing.T) {
+	t.Helper()
+	name := "harness-gateway"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	command := exec.CommandContext(t.Context(), filepath.Join(f.bin, name), "--version",
+		"--codex-path", filepath.Join(f.directory, "missing-codex"), "--copilot-path", filepath.Join(f.directory, "missing-copilot"))
+	command.Dir = f.directory
+	output, err := command.CombinedOutput()
+	want := "Harness-Gateway " + moduleVersion + " (module " + moduleVersion + ";"
+	if err != nil || !strings.Contains(string(output), want) {
+		t.Fatalf("installed command lost provenance or needs checkout/CLIs: %v\n%s", err, output)
 	}
 }

@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.1.5 - 2026-11-06
 
+- Accept an existing gateway executable in the Spring AI acceptance runner with `--gateway-binary`; run CI acceptance against a private Go-installed binary.
+- Test versioned Go installation outside the checkout on Linux, macOS, and Windows, independently of the Unix Bash installer.
+- Bound CI jobs and cancel superseded branch/PR runs without cancelling immutable tag runs.
 - Support Windows `.cmd`/`.bat` CLI entry points through the shared owned-process launcher, and use Node.js consistently for `.js` entry points and version probes.
 - Exercise Codex/Copilot protocol and lifecycle tests through native Windows batch shims, including paths with spaces, Unicode, and shell metacharacters.
 - Add opt-in real-package version/protocol smoke tests and a credential-free Windows CI job with pinned Codex/Copilot npm packages.

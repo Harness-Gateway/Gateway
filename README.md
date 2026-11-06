@@ -13,7 +13,7 @@ session. No provider API key or gateway authentication is needed.
 Use Go 1.27.3+ and the module package path, without `https://`:
 
 ```bash
-go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.4
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.5
 ```
 
 This installs the command **`harness-gateway`** into `GOBIN`, or into
@@ -39,10 +39,10 @@ bash setup.sh
 bash setup.sh --version dev
 
 # Select another module version or destination; avoid editing ~/.bashrc.
-bash setup.sh --version v0.1.4 --bin-dir "$HOME/.local/bin" --no-path
+bash setup.sh --version v0.1.5 --bin-dir "$HOME/.local/bin" --no-path
 ```
 
-Without `--version`, the script selects `v0.1.4`. It requires Go to be installed.
+Without `--version`, the script selects `v0.1.5`. It requires Go to be installed.
 It prints an export command for the current terminal; changing `~/.bashrc`
 affects future Bash sessions. Existing CLI authentication stays managed by Codex
 and Copilot. If another `harness-gateway` earlier on `PATH` shadows the installed
@@ -50,13 +50,13 @@ binary, setup prints its location and the export command to select this installa
 Install the release without cloning the repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.4/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.5/setup.sh | bash
 ```
 
 To download and inspect the script before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.4/setup.sh -o /tmp/harness-gateway-setup.sh
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.5/setup.sh -o /tmp/harness-gateway-setup.sh
 bash /tmp/harness-gateway-setup.sh
 ```
 
@@ -64,13 +64,13 @@ bash /tmp/harness-gateway-setup.sh
 
 Requirements: `codex` and `copilot` on `PATH`, already logged in. Go 1.27.3+ is
 needed for installation from source and development, not for a prebuilt binary.
-The integration has been exercised with Codex CLI 0.166.0 and Copilot CLI 1.0.105.
+The integration has been exercised with Codex CLI 0.167.0 and Copilot CLI 1.0.105.
 
 ```bash
 harness-gateway
 ```
 
-The release version is **v0.1.4**. See [release notes](CHANGELOG.md). To build a
+The release version is **v0.1.5**. See [release notes](CHANGELOG.md). To build a
 local executable and inspect its version, source revision, and platform:
 
 ```bash
@@ -274,12 +274,18 @@ go run ./tools/acceptance
 # Also test real inference using the authenticated local CLIs.
 go run ./tools/acceptance -live
 
+# Test a specific installed/prebuilt gateway without rebuilding it.
+go run ./tools/acceptance --gateway-binary /absolute/path/to/harness-gateway
+go run ./tools/acceptance --gateway-binary /absolute/path/to/harness-gateway -live
+
 # Include explicit native model selection alongside the default aliases.
 go run ./tools/acceptance -live -models codex,copilot,codex/gpt-6.1-sol,copilot/gpt-6.1-sol
 ```
 
-The runner builds the gateway and Go CLI fixtures, starts owned gateways on
-OS-assigned loopback ports, checks readiness, runs Maven, and stops the gateways
+By default, the runner builds the gateway and Go CLI fixtures. With
+`--gateway-binary`, it builds only the CLI fixtures and tests the supplied gateway.
+It starts owned gateways on OS-assigned loopback ports, checks readiness, runs
+Maven, and stops the gateways
 and removes temporary files on completion or interruption. It does not stop an
 existing gateway. Surefire reports are kept under `examples/spring-ai/target/`.
 
@@ -415,7 +421,7 @@ The SDK's known already-closed TCP writer diagnostic is classified as debug;
 unexpected diagnostics remain visible as errors. Spring AI acceptance checks JSON
 log records through normal, streaming, and failed Copilot requests.
 
-### Windows launcher tests (unreleased)
+### Windows launcher tests
 
 Source builds support native Windows executables, npm `.cmd`/`.bat` entry points,
 and `.js` entry points using Node.js. Batch wrappers remain inside the gateway's
@@ -443,12 +449,23 @@ HARNESS_GATEWAY_TEST_INSTALLED_CLIS=1 go test -v -count=1 -run '^TestInstalledCL
 Ordinary `go test ./...` skips these real-package tests. The JavaScript launcher
 test uses Node.js when available; it skips when Node.js is absent.
 
+Versioned Go-install tests run outside the checkout on Linux, macOS, and Windows
+using an isolated local module proxy and private installation/module-cache
+directories. They check the installed command's module provenance without
+requiring harness CLIs. Bash-install tests run separately on Unix. Spring AI
+acceptance remains a Unix suite and can target a supplied executable with
+`--gateway-binary`; fixture and live phases both use that exact executable.
+
 GitHub Actions runs formatting, OpenAPI validation, generated-type reproducibility,
 vet, tests, and builds on Linux, macOS, and Windows using the latest Go 1.27 patch.
 Linux also runs the race detector and pinned `govulncheck` against reachable
 vulnerabilities. Race packages run sequentially to bound large-fixture CPU and
 memory peaks. Spring Boot acceptance runs on Linux and macOS with Java 27 and
 Go CLI fixtures; the `/proc` descriptor stress checks run only on Linux.
+The Spring suite uses a gateway installed into a private directory. CI jobs have
+explicit execution timeouts, and newer pushes cancel superseded runs for the same
+branch/PR. Tag runs are retained. These limits do not shorten GitHub's hosted-runner
+queue or eliminate macOS ARM capacity shortages.
 An isolated Playwright browser job tests the Scalar interface against the same
 Go CLI fixtures. It checks model discovery, buffered and streamed responses,
 output before stream completion, cancellation and actual CLI process cleanup,

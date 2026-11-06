@@ -21,10 +21,15 @@ import (
 func main() {
 	live := flag.Bool("live", false, "also run authenticated Codex/Copilot inference (uses account allowance)")
 	models := flag.String("models", "codex,copilot", "comma-separated model IDs for live acceptance")
+	gatewayBinary := flag.String("gateway-binary", "", "existing gateway executable to test instead of building it")
 	flag.Parse()
+	if flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "acceptance does not accept positional arguments")
+		os.Exit(2)
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, *live, *models); err != nil {
+	if err := run(ctx, *live, *models, *gatewayBinary); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -41,7 +46,7 @@ func command(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-func run(ctx context.Context, live bool, models string) error {
+func run(ctx context.Context, live bool, models, gatewayBinary string) error {
 	if _, err := os.Stat("examples/spring-ai/pom.xml"); err != nil {
 		return errors.New("run acceptance from the repository root")
 	}
@@ -50,10 +55,11 @@ func run(ctx context.Context, live bool, models string) error {
 		return err
 	}
 	defer os.RemoveAll(directory)
-	gateway := filepath.Join(directory, "gateway")
-	if err := command(ctx, "go", "build", "-o", gateway, "./cmd/harness-gateway"); err != nil {
+	gateway, err := resolveGateway(ctx, directory, gatewayBinary)
+	if err != nil {
 		return err
 	}
+	fmt.Fprintln(os.Stderr, "acceptance: testing gateway executable", gateway)
 	paths := map[string]string{}
 	for _, harness := range []string{"codex", "copilot"} {
 		paths[harness] = filepath.Join(directory, harness+"-fixture")
@@ -100,6 +106,25 @@ func run(ctx context.Context, live bool, models string) error {
 	}
 	fmt.Fprintln(os.Stderr, "acceptance: passed; owned gateways stopped")
 	return nil
+}
+
+func resolveGateway(ctx context.Context, directory, supplied string) (string, error) {
+	if supplied != "" {
+		path, err := filepath.Abs(supplied)
+		if err != nil {
+			return "", fmt.Errorf("gateway binary: %w", err)
+		}
+		path, err = exec.LookPath(path)
+		if err != nil {
+			return "", fmt.Errorf("gateway binary: %w", err)
+		}
+		return path, nil
+	}
+	gateway := filepath.Join(directory, "gateway")
+	if err := command(ctx, "go", "build", "-o", gateway, "./cmd/harness-gateway"); err != nil {
+		return "", err
+	}
+	return gateway, nil
 }
 
 type gatewayProcess struct {
