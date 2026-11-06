@@ -13,7 +13,7 @@ session. No provider API key or gateway authentication is needed.
 Use Go 1.27.3+ and the module package path, without `https://`:
 
 ```bash
-go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.5
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.6
 ```
 
 This installs the command **`harness-gateway`** into `GOBIN`, or into
@@ -39,10 +39,10 @@ bash setup.sh
 bash setup.sh --version dev
 
 # Select another module version or destination; avoid editing ~/.bashrc.
-bash setup.sh --version v0.1.5 --bin-dir "$HOME/.local/bin" --no-path
+bash setup.sh --version v0.1.6 --bin-dir "$HOME/.local/bin" --no-path
 ```
 
-Without `--version`, the script selects `v0.1.5`. It requires Go to be installed.
+Without `--version`, the script selects `v0.1.6`. It requires Go to be installed.
 It prints an export command for the current terminal; changing `~/.bashrc`
 affects future Bash sessions. Existing CLI authentication stays managed by Codex
 and Copilot. If another `harness-gateway` earlier on `PATH` shadows the installed
@@ -50,13 +50,13 @@ binary, setup prints its location and the export command to select this installa
 Install the release without cloning the repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.5/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.6/setup.sh | bash
 ```
 
 To download and inspect the script before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.5/setup.sh -o /tmp/harness-gateway-setup.sh
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.6/setup.sh -o /tmp/harness-gateway-setup.sh
 bash /tmp/harness-gateway-setup.sh
 ```
 
@@ -70,7 +70,7 @@ The integration has been exercised with Codex CLI 0.167.0 and Copilot CLI 1.0.10
 harness-gateway
 ```
 
-The release version is **v0.1.5**. See [release notes](CHANGELOG.md). To build a
+The release version is **v0.1.6**. See [release notes](CHANGELOG.md). To build a
 local executable and inspect its version, source revision, and platform:
 
 ```bash

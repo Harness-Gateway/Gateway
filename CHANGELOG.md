@@ -1,14 +1,25 @@
 # Changelog
 
-## Unreleased
+## v0.1.6 - 2026-11-06
 
+- Retire Copilot SDK session event consumers before deleting completed sessions;
+  bound detach cleanup and preserve compatibility with CLIs lacking that method.
 - Expand the local Spring AI contract suite with deterministic request forwarding,
   model/reasoning overrides, response metadata, memory isolation, client timeouts,
   retry counts, and validation of unsupported options and wire features.
 - Add opt-in Linux Spring AI soak testing with retained CSV samples for gateway
   RSS, post-GC heap/objects, goroutines, descriptors, and CLI process cleanup.
-- Retire Copilot SDK session event consumers before deleting completed sessions;
-  bound detach cleanup and preserve compatibility with CLIs lacking that method.
+- Retain gateway diagnostics on failed/interrupted acceptance runs and add
+  `--output-dir` for per-run logs; upload Spring AI reports, gateway logs, and soak
+  CSV traces as CI artifacts.
+- Add bounded Go fuzzing for Copilot framing and bridge authentication, with
+  discovered regression inputs retained in CI.
+- Test pinned real Codex/Copilot npm packages on Linux, macOS, and Windows without
+  credentials or inference; keep installed-version assertions aligned with pins.
+- Stabilize live Spring AI prompts and accept native final-only streaming while
+  controlled fixtures retain incremental-delivery checks.
+- Report early gateway exit status and launcher test deadlines clearly, and
+  repeat Windows launcher integration checks in CI.
 
 ## v0.1.5 - 2026-11-06
 

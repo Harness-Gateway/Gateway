@@ -443,7 +443,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "Harness-Gateway",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "x-upstream-sha256": "0e4dc3d7f52cc7d7c41940587b5ae23c0e3173bd4b4384f9d673ee90185ebafb",
     "x-upstream-source": "https://raw.githubusercontent.com/openai/openai-openapi/85a23866c06a29098083ebb11d5ec70438305def/openapi.json"
   },
