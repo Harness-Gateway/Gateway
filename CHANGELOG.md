@@ -3,6 +3,7 @@
 ## v0.1.4 - 2026-11-06
 
 - Stop SSE output after a transport failure without renewing the write deadline for an error frame.
+- Confirm process-group disappearance before suppressing macOS's transient zombie-group permission error during cleanup.
 - Require Go 1.27.3 or newer and check reachable Go vulnerabilities in CI.
 - Reject non-loopback Host headers and cross-origin browser completion requests;
   preserve unauthenticated curl, Spring AI, and same-origin Scalar clients.
