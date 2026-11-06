@@ -44,6 +44,20 @@ func TestMain(tests *testing.M) {
 			if err := child.Start(); err != nil {
 				os.Exit(11)
 			}
+			if directory := os.Getenv("HARNESS_GATEWAY_VERSION_PIDS"); directory != "" {
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					if _, err := os.Stat(filepath.Join(directory, strconv.Itoa(child.Process.Pid))); err == nil {
+						break
+					}
+					if time.Now().After(deadline) {
+						_ = child.Process.Kill()
+						_ = child.Wait()
+						os.Exit(12)
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
+			}
 			if mode == "child" {
 				time.Sleep(time.Minute)
 			}

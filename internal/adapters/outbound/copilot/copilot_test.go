@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,9 +38,36 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// The test binary impersonates the CLI process. Only this fixture implements
-// wire framing; production continues to use the official SDK exclusively.
+// The test binary impersonates the CLI. Production guards frame sizes but
+// delegates JSON-RPC methods and session events to the official SDK.
 func fixture(mode string) error {
+	if mode == "descendant-child" {
+		if err := os.WriteFile(os.Getenv("HARNESS_GATEWAY_COPILOT_CHILD"), []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+			return err
+		}
+		time.Sleep(30 * time.Second)
+		return nil
+	}
+	if strings.HasPrefix(mode, "descendant-") {
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), "HARNESS_GATEWAY_COPILOT_TEST=descendant-child")
+		if err := child.Start(); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if _, err := os.Stat(os.Getenv("HARNESS_GATEWAY_COPILOT_CHILD")); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				_ = child.Process.Kill()
+				_ = child.Wait()
+				return errors.New("fixture child did not start")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		mode = strings.TrimPrefix(mode, "descendant-")
+	}
 	if mode == "startup-hold" {
 		file, err := os.OpenFile(os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_STARTUP"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if errors.Is(err, os.ErrExist) {
@@ -58,6 +86,18 @@ func fixture(mode string) error {
 	}
 	if err := os.WriteFile(os.Getenv("HARNESS_GATEWAY_COPILOT_PID"), []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
 		return err
+	}
+	if mode == "oversized-frame" || mode == "oversized-header" || mode == "partial-frame" {
+		switch mode {
+		case "oversized-frame":
+			fmt.Fprint(os.Stdout, "Content-Length: 134217728\r\n\r\n")
+		case "oversized-header":
+			fmt.Fprint(os.Stdout, strings.Repeat("x", maxProtocolHeaderBytes+1))
+		case "partial-frame":
+			fmt.Fprint(os.Stdout, "Content-Length: 512\r\n\r\n{")
+		}
+		time.Sleep(30 * time.Second)
+		return nil
 	}
 	reader := bufio.NewReader(os.Stdin)
 	write := func(value any) error {
@@ -132,6 +172,9 @@ func fixture(mode string) error {
 		}
 		switch request.Method {
 		case "connect":
+			if _, exists := request.Params["token"]; exists {
+				return errors.New("private bridge token must not reach the stdio CLI")
+			}
 			if mode == "startup-hold" {
 				continue
 			}
@@ -142,6 +185,12 @@ func fixture(mode string) error {
 				return err
 			}
 		case "session.create":
+			if mode == "invalid-params" {
+				if err := write(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32602, "message": "private invalid model"}}); err != nil {
+					return err
+				}
+				continue
+			}
 			if expected := os.Getenv("HARNESS_GATEWAY_COPILOT_EFFORT"); expected != "" {
 				if expected == "omitted" {
 					if _, exists := request.Params["reasoningEffort"]; exists {
@@ -229,8 +278,22 @@ func fixture(mode string) error {
 				}
 				continue
 			}
-			if mode == "session-error" {
-				if err := event(&sdk.SessionErrorData{ErrorType: "query", Message: "fixture query failed"}, nil); err != nil {
+			if mode == "session-error" || mode == "provider-invalid-request" {
+				data := &sdk.SessionErrorData{ErrorType: "query", Message: "fixture query failed"}
+				if mode == "provider-invalid-request" {
+					data.ProviderErrorType = ptr("invalid_request_error")
+					data.StatusCode = ptr(int32(400))
+				}
+				if err := event(data, nil); err != nil {
+					return err
+				}
+				continue
+			}
+			if mode == "escaped" {
+				if err := event(&sdk.AssistantMessageData{MessageID: "escaped", Content: strings.Repeat("\x00", 3*1024*1024)}, nil); err != nil {
+					return err
+				}
+				if err := event(&sdk.SessionIdleData{}, nil); err != nil {
 					return err
 				}
 				continue
@@ -359,7 +422,7 @@ func TestCrashHTTPResponse(t *testing.T) {
 			handler := openai.New(gateway, 5*time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			body := fmt.Sprintf(`{"model":"copilot","messages":[{"role":"user","content":"hello"}],"stream":%t}`, stream)
 			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+			handler.ServeHTTP(w, httptest.NewRequest("POST", "http://127.0.0.1/v1/chat/completions", strings.NewReader(body)))
 			if !strings.Contains(w.Body.String(), `"code":"harness_error"`) || strings.Contains(w.Body.String(), "[DONE]") {
 				t.Fatal(w.Body.String())
 			}

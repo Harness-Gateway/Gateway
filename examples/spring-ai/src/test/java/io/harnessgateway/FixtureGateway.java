@@ -23,6 +23,10 @@ final class FixtureGateway implements AutoCloseable {
     }
 
     FixtureGateway(String model, String mode, int concurrency) throws Exception {
+        this(model, mode, concurrency, "text");
+    }
+
+    FixtureGateway(String model, String mode, int concurrency, String logFormat) throws Exception {
         var directory = Files.createTempDirectory(Path.of(System.getProperty("gateway.failure.directory")), "gateway-");
         log = directory.resolve("gateway.log");
         turnStarted = directory.resolve("turn-started");
@@ -30,7 +34,7 @@ final class FixtureGateway implements AutoCloseable {
         var builder = new ProcessBuilder(System.getProperty("gateway.failure.executable"),
             "--listen", "127.0.0.1:0", "--harnesses", model,
             "--" + model + "-path", System.getProperty("gateway.failure." + model),
-            "--timeout", "30s", "--concurrency", Integer.toString(concurrency));
+            "--timeout", "30s", "--concurrency", Integer.toString(concurrency), "--log-format", logFormat);
         var env = builder.environment();
         env.put("HARNESS_GATEWAY_" + model.toUpperCase(java.util.Locale.ROOT) + "_TEST", mode);
         env.put("HARNESS_GATEWAY_ACCEPTANCE_PIDS", System.getProperty("gateway.failure.pids"));
@@ -52,6 +56,8 @@ final class FixtureGateway implements AutoCloseable {
     String url() { return url + "/v1"; }
 
     long pid() { return process.pid(); }
+
+    String logs() throws Exception { return Files.readString(log); }
 
     void terminate() { process.destroy(); } // SIGTERM on the supported Unix hosts.
 
@@ -84,7 +90,7 @@ final class FixtureGateway implements AutoCloseable {
     }
 
     private String awaitReady() throws Exception {
-        var pattern = Pattern.compile("url=(http://127\\.0\\.0\\.1:[0-9]+)");
+        var pattern = Pattern.compile("(?:url=|\"url\":\")(http://127\\.0\\.0\\.1:[0-9]+)");
         var deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
         try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build()) {
             while (System.nanoTime() < deadline && process.isAlive()) {

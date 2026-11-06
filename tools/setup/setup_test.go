@@ -1,9 +1,11 @@
 package setup
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,6 +16,9 @@ type setupFixture struct {
 
 func newSetupFixture(t *testing.T) setupFixture {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Bash installer targets Unix shells")
+	}
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("Bash setup tests require bash")
@@ -77,7 +82,7 @@ func TestSetupDefaultVersionAndIdempotentBashPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.3\n"
+	want := "install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.4\n"
 	if string(calls) != want+want {
 		t.Fatalf("wrong Go install command: %s", calls)
 	}
@@ -162,5 +167,61 @@ func TestSetupHelpDoesNotInstall(t *testing.T) {
 	}
 	if _, err := os.Stat(f.log); !os.IsNotExist(err) {
 		t.Fatal("help ran Go install")
+	}
+}
+
+func TestSetupWarnsWhenAnotherBinaryShadowsInstallation(t *testing.T) {
+	for _, noPath := range []bool{false, true} {
+		t.Run(fmt.Sprint(noPath), func(t *testing.T) {
+			f := newSetupFixture(t)
+			oldDir, newDir := filepath.Join(f.home, "old bin"), filepath.Join(f.home, "new bin")
+			if err := os.Mkdir(oldDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			oldBinary := filepath.Join(oldDir, "harness-gateway")
+			if err := os.WriteFile(oldBinary, []byte("#!/usr/bin/env bash\nprintf OLD_VERSION"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", oldDir+":"+newDir+":"+os.Getenv("PATH"))
+			args := []string{"--bin-dir", newDir}
+			if noPath {
+				args = append(args, "--no-path")
+			}
+			output, err := f.run(t, args...)
+			if err != nil || !strings.Contains(output, "shadows this installation") || !strings.Contains(output, oldBinary) || !strings.Contains(output, "For this terminal") || strings.Contains(output, "is available on PATH") {
+				t.Fatalf("missing shadow warning: %v\n%s", err, output)
+			}
+			rc := filepath.Join(f.home, ".bashrc")
+			if noPath {
+				if _, err := os.Stat(rc); !os.IsNotExist(err) {
+					t.Fatal("--no-path changed Bash configuration")
+				}
+			} else {
+				command := exec.CommandContext(t.Context(), f.bash, "-c", `source "$1"; harness-gateway --version`, "bash", rc)
+				fixed, err := command.CombinedOutput()
+				if err != nil || strings.TrimSpace(string(fixed)) != "Harness-Gateway fixture" {
+					t.Fatalf("PATH correction failed: %v %s", err, fixed)
+				}
+			}
+		})
+	}
+}
+
+func TestSetupRecognizesSymlinkedPathToSameInstallation(t *testing.T) {
+	f := newSetupFixture(t)
+	bin, alias := filepath.Join(f.home, "real bin"), filepath.Join(f.home, "bin alias")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(bin, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", alias+":"+os.Getenv("PATH"))
+	output, err := f.run(t, "--bin-dir", bin)
+	if err != nil || !strings.Contains(output, "is available on PATH") || strings.Contains(output, "shadows this installation") {
+		t.Fatalf("same executable was treated as a conflict: %v\n%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(f.home, ".bashrc")); !os.IsNotExist(err) {
+		t.Fatal("redundant PATH entry was added")
 	}
 }

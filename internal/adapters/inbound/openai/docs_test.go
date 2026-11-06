@@ -27,7 +27,7 @@ func TestRootRedirectsToDocumentation(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			h.ServeHTTP(w, httptest.NewRequest(method, "http://127.0.0.1:49123/", nil))
+			h.ServeHTTP(w, localRequest(method, "http://127.0.0.1:49123/", nil))
 			if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != "/docs" {
 				t.Fatalf("root should redirect on the same host and port: %d %v", w.Code, w.Header())
 			}
@@ -40,7 +40,7 @@ func TestRootRedirectsToDocumentation(t *testing.T) {
 		{http.MethodGet, "/unknown"}, {http.MethodGet, "/v1/unknown"}, {http.MethodPost, "/"},
 	} {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(test.method, test.path, nil))
+		h.ServeHTTP(w, localRequest(test.method, test.path, nil))
 		if w.Code != http.StatusNotFound || w.Header().Get("Location") != "" || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
 			t.Fatalf("%s %s should retain the API error: %d %s", test.method, test.path, w.Code, w.Body.String())
 		}
@@ -63,7 +63,7 @@ func TestDocumentationRoutes(t *testing.T) {
 		t.Run(test.path, func(t *testing.T) {
 			for _, method := range []string{http.MethodGet, http.MethodHead} {
 				w := httptest.NewRecorder()
-				h.ServeHTTP(w, httptest.NewRequest(method, test.path, nil))
+				h.ServeHTTP(w, localRequest(method, test.path, nil))
 				if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), test.contentType) {
 					t.Fatalf("%s: status=%d headers=%v", method, w.Code, w.Header())
 				}
@@ -81,9 +81,16 @@ func TestDocumentationRoutes(t *testing.T) {
 	}
 	for _, path := range []string{"/docs/unknown", "/docs/assets/unknown.js", "/docs/assets/../README.md"} {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		h.ServeHTTP(w, localRequest(http.MethodGet, path, nil))
 		// ServeMux canonicalizes paths with .. before dispatching them.
-		if w.Code != http.StatusNotFound && w.Code != http.StatusMovedPermanently {
+		if strings.Contains(path, "/../") {
+			if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != "/docs/README.md" {
+				t.Fatalf("path was not canonicalized safely: %d %v", w.Code, w.Header())
+			}
+			w = httptest.NewRecorder()
+			h.ServeHTTP(w, localRequest(http.MethodGet, "/docs/README.md", nil))
+		}
+		if w.Code != http.StatusNotFound {
 			t.Fatalf("unexpected docs route %q returned %d", path, w.Code)
 		}
 	}
@@ -169,7 +176,7 @@ func TestDocumentedCompletionExamples(t *testing.T) {
 	for name, example := range examples {
 		t.Run(name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(example.Value))
+			r := localRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(example.Value))
 			r.Header.Set("Content-Type", "application/json")
 			h.ServeHTTP(w, r)
 			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Hello!") {

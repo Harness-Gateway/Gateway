@@ -443,7 +443,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "Harness-Gateway",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "x-upstream-sha256": "0e4dc3d7f52cc7d7c41940587b5ae23c0e3173bd4b4384f9d673ee90185ebafb",
     "x-upstream-source": "https://raw.githubusercontent.com/openai/openai-openapi/85a23866c06a29098083ebb11d5ec70438305def/openapi.json"
   },
@@ -466,6 +466,16 @@
               }
             },
             "description": "The gateway is running."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Non-loopback Host or cross-origin browser request is forbidden."
           },
           "405": {
             "content": {
@@ -631,6 +641,16 @@
             },
             "description": "Invalid or unsupported request."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Non-loopback Host or cross-origin browser request is forbidden."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -756,6 +776,16 @@
               }
             },
             "description": "Configured aliases and currently available native model IDs. Discovery uses the local authenticated CLIs."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Non-loopback Host or cross-origin browser request is forbidden."
           },
           "405": {
             "content": {

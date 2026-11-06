@@ -1,20 +1,16 @@
-//go:build unix
-
 package main
 
 import (
 	"context"
 	"os"
-	"path/filepath"
-	"runtime"
+	"strconv"
 	"testing"
 	"time"
+
+	"github.com/harness-gateway/harness-gateway/internal/testutil"
 )
 
 func TestVersionProbeStopsDescendants(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("uses Linux procfs to inspect surviving fixture processes")
-	}
 	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	for _, mode := range []string{"child", "pipe-child"} {
 		t.Run(mode, func(t *testing.T) {
@@ -31,10 +27,17 @@ func TestVersionProbeStopsDescendants(t *testing.T) {
 				t.Fatalf("expected a parent and child process: %d, %v", len(pids), err)
 			}
 			for _, pid := range pids {
+				id, err := strconv.Atoi(pid.Name())
+				if err != nil {
+					t.Fatal(err)
+				}
 				deadline := time.Now().Add(time.Second)
 				for {
-					_, err := os.Readlink(filepath.Join("/proc", pid.Name(), "exe"))
-					if os.IsNotExist(err) {
+					running, err := testutil.ProcessRunning(id)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !running {
 						break
 					}
 					if time.Now().After(deadline) {

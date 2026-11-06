@@ -41,7 +41,7 @@ func TestResponseTextLimitAndRecovery(t *testing.T) {
 				h := handler(backend, 30*time.Second)
 				w := httptest.NewRecorder()
 				body := `{"model":"codex","messages":[{"role":"user","content":"limit"}],"stream":` + fmtBool(stream) + `}`
-				h.ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+				h.ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
 				wantStatus := http.StatusOK
 				if excess && !stream {
 					wantStatus = http.StatusBadGateway
@@ -117,16 +117,32 @@ func TestResponseTextLimitAndRecovery(t *testing.T) {
 func assertRecovery(t *testing.T, h http.Handler) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"codex","messages":[{"role":"user","content":"recover"}]}`)))
+	h.ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"codex","messages":[{"role":"user","content":"recover"}]}`)))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"content":"recovered"`) {
 		t.Fatalf("gateway did not recover: %d", w.Code)
 	}
+}
+
+type writeDeadlineRecorder struct {
+	http.ResponseWriter
+	deadline *time.Time
+}
+
+func (w writeDeadlineRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w writeDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	if err := http.NewResponseController(w.ResponseWriter).SetWriteDeadline(deadline); err != nil {
+		return err
+	}
+	*w.deadline = deadline
+	return nil
 }
 
 func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmtBool(stream), func(t *testing.T) {
 			finished := make(chan struct{})
+			var lastWriteDeadline, finishedAt time.Time
 			backendStopped := make(chan struct{})
 			delta := strings.Repeat("x", 256*1024)
 			backend := harnessFunc(func(ctx context.Context, request domain.Request, emit func(string) error) (domain.Result, error) {
@@ -144,8 +160,9 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 			gateway := application.New([]application.Backend{{Model: application.Model{ID: "codex"}, Harness: backend}}, 1)
 			h := New(gateway, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				h.ServeHTTP(w, r)
+				h.ServeHTTP(writeDeadlineRecorder{w, &lastWriteDeadline}, r)
 				if r.Header.Get("X-Test-Slow") == "1" {
+					finishedAt = time.Now()
 					close(finished)
 				}
 			}))
@@ -177,14 +194,19 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 			}
 			// Keep the socket open without consuming its body. Only the server's
 			// write deadline may release the handler; client cancellation cannot.
-			blockedAt := time.Now()
 			select {
 			case <-finished:
 			case <-time.After(13 * time.Second):
 				t.Fatal("slow reader retained the response handler beyond its 10s write budget")
 			}
-			if time.Since(blockedAt) < responseWriteTimeout-time.Second {
-				t.Fatal("test did not hold the TCP response long enough to exercise its write deadline")
+			// Buffered JSON encoding consumes part of the server's write budget
+			// before headers reach the client. Observe the actual deadline rather
+			// than starting a second clock after the client reads those headers.
+			if lastWriteDeadline.IsZero() || finishedAt.Before(lastWriteDeadline.Add(-100*time.Millisecond)) {
+				t.Fatal("handler finished before exercising its recorded write deadline")
+			}
+			if finishedAt.After(lastWriteDeadline.Add(3 * time.Second)) {
+				t.Fatal("handler exceeded its recorded write deadline and cleanup allowance")
 			}
 			select {
 			case <-backendStopped:

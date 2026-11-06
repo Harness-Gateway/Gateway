@@ -3,6 +3,7 @@ package copilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,7 +24,7 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 	if err != nil {
 		return result, err
 	}
-	defer stop()
+	defer func() { err = errors.Join(err, stop()) }()
 	instructions, input := prompt.Build(request.Messages)
 	model := h.Model
 	if request.Model != "" {
@@ -46,7 +47,7 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 	}
 	session, err := client.CreateSession(ctx, config)
 	if err != nil {
-		return result, fmt.Errorf("create copilot session: %w", err)
+		return result, classifyRequestError(fmt.Errorf("create copilot session: %w", err))
 	}
 	defer func() {
 		if ctx.Err() != nil {
@@ -76,7 +77,7 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 	})
 	defer unsubscribe()
 	if _, err := session.Send(ctx, sdk.MessageOptions{Prompt: input}); err != nil {
-		return result, fmt.Errorf("send copilot request: %w", err)
+		return result, classifyRequestError(fmt.Errorf("send copilot request: %w", err))
 	}
 	monitorCtx, stopMonitor := context.WithCancel(ctx)
 	defer stopMonitor()
@@ -120,12 +121,24 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 					result.FinishReason = *data.FinishReason
 				}
 			case *sdk.SessionErrorData:
-				return result, fmt.Errorf("copilot %s: %s", data.ErrorType, data.Message)
+				err := fmt.Errorf("copilot %s: %s", data.ErrorType, data.Message)
+				if data.ProviderErrorType != nil && *data.ProviderErrorType == "invalid_request_error" && data.StatusCode != nil && *data.StatusCode == 400 {
+					return result, &domain.RequestError{Cause: err}
+				}
+				return result, err
 			case *sdk.SessionIdleData:
 				return result, nil
 			}
 		}
 	}
+}
+
+func classifyRequestError(err error) error {
+	var rpcError *sdk.RPCError
+	if errors.As(err, &rpcError) && rpcError.Code == -32602 {
+		return &domain.RequestError{Cause: err}
+	}
+	return err
 }
 
 // The SDK exposes no public connection-closed channel. A pending ping fails on

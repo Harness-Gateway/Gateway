@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,6 +30,34 @@ func TestMain(m *testing.M) {
 }
 
 func fakeServer(mode string) {
+	if mode == "descendant-child" {
+		if err := os.WriteFile(os.Getenv("HARNESS_GATEWAY_CODEX_CHILD"), []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+			os.Exit(31)
+		}
+		time.Sleep(30 * time.Second)
+		return
+	}
+	if strings.HasPrefix(mode, "descendant-") {
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), "HARNESS_GATEWAY_CODEX_TEST=descendant-child")
+		child.Stdout, child.Stderr = os.Stdout, os.Stderr
+		if err := child.Start(); err != nil {
+			os.Exit(32)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if _, err := os.Stat(os.Getenv("HARNESS_GATEWAY_CODEX_CHILD")); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				_ = child.Process.Kill()
+				_ = child.Wait()
+				os.Exit(33)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		mode = strings.TrimPrefix(mode, "descendant-")
+	}
 	if mode == "startup-hold" {
 		file, err := os.OpenFile(os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_STARTUP"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if errors.Is(err, os.ErrExist) {
@@ -65,6 +94,23 @@ func fakeServer(mode string) {
 		}
 		switch input.Method {
 		case "initialize":
+			if mode == "startup-crash" {
+				return
+			}
+			if mode == "initialize-invalid-params" {
+				write(map[string]any{"id": input.ID, "error": map[string]any{"code": -32602, "message": "private initialization detail"}})
+				continue
+			}
+			if mode == "oversized-frame" {
+				block := strings.Repeat(" ", 64*1024)
+				for size := 0; size <= maxProtocolFrameBytes; size += len(block) {
+					if _, err := fmt.Fprint(os.Stdout, block); err != nil {
+						return
+					}
+				}
+				fmt.Println()
+				continue
+			}
 			if mode == "startup-hold" {
 				continue
 			}
@@ -74,6 +120,10 @@ func fakeServer(mode string) {
 			}
 			write(map[string]any{"id": input.ID, "result": map[string]any{}})
 		case "thread/start":
+			if mode == "invalid-params" {
+				write(map[string]any{"id": input.ID, "error": map[string]any{"code": -32602, "message": "private model detail", "data": map[string]any{"param": "model"}}})
+				continue
+			}
 			if expected := os.Getenv("HARNESS_GATEWAY_CODEX_MODEL"); expected != "" && input.Params["model"] != expected {
 				os.Exit(10)
 			}
@@ -84,6 +134,14 @@ func fakeServer(mode string) {
 				os.Exit(6)
 			}
 			write(map[string]any{"id": input.ID, "result": map[string]any{"thread": map[string]string{"id": "thread-test"}}})
+			if mode == "blocked-stdin" {
+				if marker := os.Getenv("HARNESS_GATEWAY_CODEX_BLOCKED"); marker != "" {
+					if err := os.WriteFile(marker, []byte("not reading stdin"), 0600); err != nil {
+						os.Exit(22)
+					}
+				}
+				time.Sleep(time.Hour)
+			}
 		case "model/list":
 			if input.Params["includeHidden"] != false {
 				os.Exit(11)
@@ -117,6 +175,12 @@ func fakeServer(mode string) {
 				os.Exit(12)
 			}
 		case "turn/start":
+			if mode == "escaped" {
+				notify("item/completed", map[string]any{"item": map[string]string{"id": "escaped-message", "type": "agentMessage", "text": strings.Repeat("\x00", 3*1024*1024)}})
+				notify("turn/completed", map[string]any{"turn": map[string]string{"status": "completed"}})
+				write(map[string]any{"id": input.ID, "result": map[string]any{}})
+				continue
+			}
 			if mode == "acceptance" {
 				inputs, _ := input.Params["input"].([]any)
 				if len(inputs) != 1 {
@@ -172,6 +236,7 @@ func fakeServer(mode string) {
 				notify("item/agentMessage/delta", map[string]string{"itemId": "message-test", "delta": "world"})
 			}
 			if mode != "failure" {
+				notify("item/completed", map[string]any{"item": map[string]string{"id": "message-test", "type": "agentMessage", "text": "hello world"}})
 				notify("item/completed", map[string]any{"item": map[string]string{"id": "message-test", "type": "agentMessage", "text": "hello world"}})
 			}
 			notify("thread/tokenUsage/updated", map[string]any{"tokenUsage": map[string]any{"total": map[string]int{"inputTokens": 12, "outputTokens": 3, "totalTokens": 15}}})

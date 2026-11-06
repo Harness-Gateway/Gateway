@@ -4,53 +4,76 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/harness-gateway/harness-gateway/internal/buildinfo"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/process"
 )
 
 const processWait = 2 * time.Second
 
-func (h *Harness) connect(ctx context.Context) (*connection, func(), error) {
+// A UTF-8 byte can expand to six bytes (\u0000) in a JSON string. Reserve
+// another MiB for the protocol envelope, while still bounding each wire frame.
+const maxProtocolFrameBytes = 6*domain.MaxResponseBytes + 1024*1024
+
+func (h *Harness) connect(ctx context.Context) (*connection, func() error, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	path := h.Path
 	if path == "" {
 		path = "codex"
 	}
 	processCtx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(processCtx, path, "app-server", "--listen", "stdio://")
+	cmd := exec.Command(path, "app-server", "--listen", "stdio://")
 	cmd.Dir = h.Directory
-	configureProcess(cmd)
-	stdin, err := cmd.StdinPipe()
+	cmd.WaitDelay = processWait
+	stdinChild, stdin, err := os.Pipe()
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdout, stdoutChild, err := os.Pipe()
 	if err != nil {
 		_ = stdin.Close()
+		_ = stdinChild.Close()
 		cancel()
 		return nil, nil, err
 	}
-	// Diagnostics are not protocol messages and can contain local configuration.
-	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
+	// Own pipe ends so Wait cannot truncate a fast-exiting CLI's last frames.
+	// Nil stderr discards diagnostics without another copying goroutine/pipe.
+	cmd.Stdin, cmd.Stdout = stdinChild, stdoutChild
+	kill, err := process.Start(cmd)
+	_ = stdinChild.Close()
+	_ = stdoutChild.Close()
+	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
 		cancel()
 		return nil, nil, fmt.Errorf("start codex: %w", err)
 	}
-	stop := func() {
-		_ = stdin.Close()
-		cancel()
-		// Every operation intentionally stops its owned process after finishing.
-		_ = cmd.Wait()
-	}
-	output, readError := make(chan message), make(chan error, 1)
+	processDone := make(chan struct{})
 	go func() {
+		// The protocol reader reports EOF/errors after draining final output.
+		// Wait status can be a deliberate termination during owned cleanup.
+		_ = cmd.Wait()
+		_ = kill() // Release descendants retaining stdout when the parent exits.
+		close(processDone)
+	}()
+	output, readError := make(chan message), make(chan error, 1)
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
 		defer close(output)
 		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+		scanner.Buffer(make([]byte, 64*1024), maxProtocolFrameBytes)
 		for scanner.Scan() {
 			var event message
 			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
@@ -69,25 +92,37 @@ func (h *Harness) connect(ctx context.Context) (*connection, func(), error) {
 			readError <- io.ErrUnexpectedEOF
 		}
 	}()
+	stopAll := sync.OnceValue(func() error {
+		cancel()
+		_ = stdin.Close() // Interrupt blocked stdin writes as well as reads.
+		killErr := kill()
+		_ = stdout.Close()
+		select {
+		case <-processDone:
+		case <-time.After(processWait):
+			killErr = errors.Join(killErr, errors.New("timed out waiting for codex process to exit"))
+		}
+		<-readerDone
+		return killErr
+	})
+	stopOnCancel := context.AfterFunc(processCtx, func() { _ = stopAll() })
+	stop := func() error { stopOnCancel(); return stopAll() }
 	c := &connection{ctx: processCtx, input: json.NewEncoder(stdin), output: output, readError: readError}
 	if _, err := c.call("initialize", map[string]any{"clientInfo": map[string]string{"name": "harness_gateway", "title": "Harness-Gateway", "version": buildinfo.Version}}, nil); err != nil {
-		stop()
-		return nil, nil, err
+		return nil, nil, errors.Join(err, stop())
 	}
 	if err := c.input.Encode(map[string]any{"method": "initialized", "params": map[string]any{}}); err != nil {
-		stop()
-		return nil, nil, err
+		return nil, nil, errors.Join(err, stop())
 	}
 	return c, stop, nil
 }
 
-func (h *Harness) Models(ctx context.Context) ([]string, error) {
+func (h *Harness) Models(ctx context.Context) (ids []string, err error) {
 	c, stop, err := h.connect(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer stop()
-	var ids []string
+	defer func() { err = errors.Join(err, stop()) }()
 	cursor := ""
 	seen := map[string]bool{}
 	for {

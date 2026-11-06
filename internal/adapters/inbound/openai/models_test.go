@@ -62,7 +62,7 @@ func TestModelDiscoveryErrorClassification(t *testing.T) {
 			}
 			h := New(gateway, timeout, slog.New(slog.NewJSONHandler(&logs, nil)))
 			w := httptest.NewRecorder()
-			h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil).WithContext(ctx))
+			h.ServeHTTP(w, localRequest(http.MethodGet, "/v1/models", nil).WithContext(ctx))
 			if test.status == 0 {
 				if w.Body.Len() != 0 || logs.Len() != 0 {
 					t.Fatalf("client cancellation wrote a response or logged a failure: body=%s logs=%s", w.Body.String(), logs.String())

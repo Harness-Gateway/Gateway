@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/harness-gateway/harness-gateway/internal/process"
 )
 
 const versionProbeTimeout = 2 * time.Second
@@ -37,15 +38,21 @@ func identifyHarnessVersions(ctx context.Context, harnesses []harnessStatus) []h
 func probeHarnessVersion(parent context.Context, name, executable string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, versionProbeTimeout)
 	defer cancel()
-	command := exec.CommandContext(ctx, executable, "--version")
-	configureVersionProcess(command)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	command := exec.Command(executable, "--version")
+	command.WaitDelay = 200 * time.Millisecond
 	var output versionOutput
 	command.Stdout, command.Stderr = &output, io.Discard
-	runErr := command.Run()
-	cleanupErr := stopVersionProcess(command)
-	if errors.Is(cleanupErr, os.ErrProcessDone) {
-		cleanupErr = nil
+	stop, err := process.Start(command)
+	if err != nil {
+		return "", fmt.Errorf("--version failed: %w", err)
 	}
+	stopOnCancel := context.AfterFunc(ctx, func() { _ = stop() })
+	runErr := command.Wait()
+	stopOnCancel()
+	cleanupErr := stop()
 	if output.exceeded {
 		runErr = errors.Join(errVersionOutputLimit, runErr)
 	}

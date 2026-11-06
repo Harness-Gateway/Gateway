@@ -22,6 +22,7 @@ import com.openai.errors.OpenAIServiceException;
 import com.openai.errors.RateLimitException;
 import com.openai.errors.SseException;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -32,6 +33,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.json.JsonParserFactory;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -40,6 +42,34 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(20)
 @EnabledIfSystemProperty(named = "gateway.failure.url", matches = ".+")
 class GatewayFailureTest {
+
+    @Test
+    void jsonLogsRemainStructuredThroughCopilotCleanup() throws Exception {
+        try (var server = new FixtureGateway("copilot", "acceptance", 1, "json");
+             var context = application("copilot", server.url())) {
+            var client = client(context);
+            assertGatewayReusable(client);
+            assertEquals("hello world", client.prompt().user("normal").stream().content()
+                .reduce("", String::concat).block(Duration.ofSeconds(10)));
+            assertThrows(OpenAIServiceException.class, () -> client.prompt().user("crash").call().content());
+            awaitProcessesStopped();
+            server.terminate();
+            server.awaitExit();
+            var logs = server.logs();
+            assertFalse(logs.contains("Failed to close JSON-RPC writer"), "Benign SDK cleanup polluted default logs");
+            var parser = JsonParserFactory.getJsonParser();
+            boolean sawError = false;
+            for (var line : logs.lines().filter(value -> !value.isBlank()).toList()) {
+                var record = parser.parseMap(line);
+                assertNotNull(record.get("level"), "Unstructured log record: " + line);
+                if ("completion failed".equals(record.get("msg"))) {
+                    assertEquals("ERROR", record.get("level"));
+                    sawError = true;
+                }
+            }
+            assertTrue(sawError, "Unexpected harness failures must remain visible");
+        }
+    }
 
     static Stream<String> models() {
         return Stream.of("codex", "copilot");

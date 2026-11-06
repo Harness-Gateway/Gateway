@@ -92,6 +92,8 @@ func parseOptions(args []string, output io.Writer) (options, error) {
 }
 
 func run(options options, logger *slog.Logger) error {
+	restoreDiagnostics := routeLibraryDiagnostics(logger)
+	defer restoreDiagnostics()
 	if err := loopbackAddress(options.address); err != nil {
 		return err
 	}

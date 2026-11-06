@@ -1,2 +1,4 @@
+* text=auto eol=lf
+
 # Preserve the checksum of the unmodified upstream Scalar bundle.
 internal/adapters/inbound/openai/docs/assets/scalar-1.70.0.js -whitespace linguist-vendored

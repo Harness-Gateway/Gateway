@@ -10,10 +10,10 @@ session. No provider API key or gateway authentication is needed.
 
 ## Install
 
-Use Go 1.25+ and the module package path, without `https://`:
+Use Go 1.27.3+ and the module package path, without `https://`:
 
 ```bash
-go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.3
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.4
 ```
 
 This installs the command **`harness-gateway`** into `GOBIN`, or into
@@ -39,28 +39,30 @@ bash setup.sh
 bash setup.sh --version dev
 
 # Select another module version or destination; avoid editing ~/.bashrc.
-bash setup.sh --version v0.1.3 --bin-dir "$HOME/.local/bin" --no-path
+bash setup.sh --version v0.1.4 --bin-dir "$HOME/.local/bin" --no-path
 ```
 
-Without `--version`, the script selects `v0.1.3`. It requires Go to be installed.
+Without `--version`, the script selects `v0.1.4`. It requires Go to be installed.
 It prints an export command for the current terminal; changing `~/.bashrc`
 affects future Bash sessions. Existing CLI authentication stays managed by Codex
-and Copilot. Install the release without cloning the repository:
+and Copilot. If another `harness-gateway` earlier on `PATH` shadows the installed
+binary, setup prints its location and the export command to select this installation.
+Install the release without cloning the repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.3/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.4/setup.sh | bash
 ```
 
 To download and inspect the script before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.3/setup.sh -o /tmp/harness-gateway-setup.sh
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.4/setup.sh -o /tmp/harness-gateway-setup.sh
 bash /tmp/harness-gateway-setup.sh
 ```
 
 ## Run
 
-Requirements: `codex` and `copilot` on `PATH`, already logged in. Go 1.25+ is
+Requirements: `codex` and `copilot` on `PATH`, already logged in. Go 1.27.3+ is
 needed for installation from source and development, not for a prebuilt binary.
 The integration has been exercised with Codex CLI 0.166.0 and Copilot CLI 1.0.105.
 
@@ -68,7 +70,7 @@ The integration has been exercised with Codex CLI 0.166.0 and Copilot CLI 1.0.10
 harness-gateway
 ```
 
-The release version is **v0.1.3**. See [release notes](CHANGELOG.md). To build a
+The release version is **v0.1.4**. See [release notes](CHANGELOG.md). To build a
 local executable and inspect its version, source revision, and platform:
 
 ```bash
@@ -340,6 +342,8 @@ count stays within a bounded allowance for retained HTTP connections.
 | Limits | 1 MiB request; 16 MiB UTF-8 assistant text before JSON/SSE encoding; bounded concurrency and duration |
 | Slow readers | Ten-second socket-write budget for buffered JSON and each SSE write |
 | HTTP validation | Oversized bodies return 413, including trailing whitespace; unsupported methods on API endpoints return 405 with `Allow` |
+| Local access | Host must be `localhost` or a loopback IP; cross-origin browser completion requests return 403. No auth is required for curl or Spring AI |
+| Harness request errors | Explicit JSON-RPC invalid-parameter rejections and Copilot structured upstream HTTP 400 invalid-request errors return sanitized 400 errors; unclassified CLI failures return 502 |
 | Cancellation | HTTP disconnect/deadline stops the request-owned CLI process |
 | Other request fields | Rejected with HTTP 400 and an OpenAI-style error envelope |
 | Responses, embeddings, images, audio, client tool calls | Unsupported |
@@ -371,13 +375,24 @@ The application and domain packages do not import HTTP, provider SDKs, or proces
 protocols. Add a harness by implementing `domain.Harness` and registering its
 model alias in `cmd/harness-gateway`. CLI-specific conversation adaptation stays outbound.
 
+The gateway owns harness CLI and version-probe process trees through Unix process
+groups or Windows Job Objects in `internal/process`. Codex monitors parent exit
+while draining stdout so inherited child pipes cannot hide a crash. The Copilot
+SDK connects through a private, token-authenticated loopback bridge that checks
+protocol headers (8 KiB) and frame
+lengths before SDK allocation. Frames allow six times the 16 MiB decoded-text
+budget plus 1 MiB of envelope overhead for JSON escaping. This internal connection
+does not change the gateway's public API or CLI-managed authentication. The bridge
+consumes its transport token before forwarding the SDK handshake to the stdio CLI,
+including older installed versions without connection-token authentication.
+
 ## Develop
 
 ```bash
 go fmt ./...
 go vet ./...
 go test ./...
-go test -race ./...
+go test -race -p 1 ./...
 go build ./cmd/harness-gateway
 ```
 
@@ -391,15 +406,27 @@ Transport tests accept exactly 16 MiB of UTF-8 text, reject an additional byte i
 both response modes, and verify subsequent requests recover. Real TCP tests keep
 clients connected without consuming the response body and check the ten-second
 write budget releases both buffered and streaming handlers and backend capacity.
+Copilot regressions check descendant cleanup on success, cancellation, crashes,
+and model-discovery failures; reject oversized frame headers before SDK allocation;
+and exercise partial-frame cancellation and bridge authentication/recovery.
+
+The command routes standard-log library diagnostics through the configured logger.
+The SDK's known already-closed TCP writer diagnostic is classified as debug;
+unexpected diagnostics remain visible as errors. Spring AI acceptance checks JSON
+log records through normal, streaming, and failed Copilot requests.
 
 GitHub Actions runs formatting, OpenAPI validation, generated-type reproducibility,
-vet, race tests, the Go build, and the Spring Boot failure and stress acceptance
-suites with Java 27 and Go CLI fixtures.
+vet, tests, and builds on Linux, macOS, and Windows using the latest Go 1.27 patch.
+Linux also runs the race detector and pinned `govulncheck` against reachable
+vulnerabilities. Race packages run sequentially to bound large-fixture CPU and
+memory peaks. Spring Boot acceptance runs on Linux and macOS with Java 27 and
+Go CLI fixtures; the `/proc` descriptor stress checks run only on Linux.
 An isolated Playwright browser job tests the Scalar interface against the same
 Go CLI fixtures. It checks model discovery, buffered and streamed responses,
 output before stream completion, cancellation and actual CLI process cleanup,
 capacity recovery, error display, custom ports, mobile rendering, and absence of
-off-origin requests. These tests need no logged-in harnesses. Reports, gateway
+off-origin requests from Scalar. A separate browser origin verifies no-CORS Blob
+POSTs return 403 without starting a CLI. These tests need no logged-in harnesses. Reports, gateway
 logs, and screenshots are uploaded as the `scalar-browser-acceptance` artifact.
 Authenticated live acceptance remains a local gate, separate from CI.
 

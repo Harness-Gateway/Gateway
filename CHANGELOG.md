@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.1.4 - 2026-11-06
+
+- Require Go 1.27.3 or newer and check reachable Go vulnerabilities in CI.
+- Reject non-loopback Host headers and cross-origin browser completion requests;
+  preserve unauthenticated curl, Spring AI, and same-origin Scalar clients.
+- Preserve request timeout and cancellation causes when a CLI returns a transport
+  error, including Codex blocked on stdin writes.
+- Allow JSON-escaped Codex frames within the 16 MiB decoded assistant-text limit
+  while keeping a bounded wire-frame size; deduplicate repeated final messages.
+- Return sanitized HTTP 400 errors for explicit structured completion-parameter
+  rejections, preserving generic CLI failures as HTTP 502.
+- Warn when an earlier PATH entry shadows the binary installed by setup.sh.
+- Share process-tree ownership across harnesses and CLI version probes, stopping
+  descendants through Unix process groups and Windows Job Objects.
+- Detect Codex parent exit promptly while draining buffered output, including
+  crashes where a child retains stdout; preserve partial SSE text before errors.
+- Guard Copilot frame and header sizes before SDK parsing through a private,
+  token-authenticated loopback bridge; retain the official SDK for operations.
+- Consume bridge credentials before the CLI handshake for installed-version
+  compatibility, and use fixed copy buffers to avoid retained splice-pool pipes.
+- Route standard-log library diagnostics through the configured logger, classify
+  the benign SDK closed-writer message as debug, and retain unexpected errors.
+- Add Linux, macOS, and Windows Go CI, Unix Spring AI acceptance, and a real-browser
+  regression for cross-origin no-CORS requests.
+
 ## v0.1.3 - 2026-11-06
 
 - Redirect the gateway root (`/`) to the interactive API documentation at `/docs`.

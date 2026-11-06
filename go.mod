@@ -1,10 +1,11 @@
 module github.com/harness-gateway/harness-gateway
 
-go 1.25.0
+go 1.27.3
 
 require (
 	github.com/github/copilot-sdk/go v1.0.28
 	github.com/spf13/pflag v1.1.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 )
 
@@ -19,5 +20,4 @@ require (
 	go.opentelemetry.io/otel v1.35.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 )

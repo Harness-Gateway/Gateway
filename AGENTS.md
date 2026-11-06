@@ -8,7 +8,7 @@ Initially, the project targets GitHub Copilot CLI and OpenAI Codex CLI, with an 
 
 ## Technology Stack
 
-- **Language:** Go 1.25+
+- **Language:** Go 1.27.3+
 - **HTTP server:** Go standard library (`net/http`)
 - **API contract:** Official OpenAI OpenAPI specification
 - **API code generation:** `oapi-codegen` where practical

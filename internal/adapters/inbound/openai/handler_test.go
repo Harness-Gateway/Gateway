@@ -26,6 +26,14 @@ func handler(backend domain.Harness, timeout time.Duration) http.Handler {
 	return New(application.New([]application.Backend{{Model: application.Model{ID: "codex", Provider: "codex"}, Harness: backend}}, 1), timeout, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
+func localRequest(method, target string, body io.Reader) *http.Request {
+	r := httptest.NewRequest(method, target, body)
+	if strings.HasPrefix(target, "/") {
+		r.Host = "127.0.0.1:8080"
+	}
+	return r
+}
+
 func TestCompletionAndStream(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmtBool(stream), func(t *testing.T) {
@@ -46,7 +54,7 @@ func TestCompletionAndStream(t *testing.T) {
 			}
 			body += `}`
 			w := httptest.NewRecorder()
-			handler(backend, time.Second).ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+			handler(backend, time.Second).ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
 			if w.Code != http.StatusOK {
 				t.Fatalf("%d: %s", w.Code, w.Body.String())
 			}
@@ -134,7 +142,7 @@ func TestRejectUnsupportedRequestsBeforeCallingHarness(t *testing.T) {
 	for _, body := range cases {
 		t.Run(body, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			handler(backend, time.Second).ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+			handler(backend, time.Second).ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
 			if w.Code != http.StatusBadRequest {
 				t.Fatalf("status=%d, body=%s", w.Code, w.Body.String())
 			}
@@ -175,7 +183,7 @@ func TestFailuresAndCancellation(t *testing.T) {
 				}
 			}
 			w := httptest.NewRecorder()
-			handler(backend, 10*time.Millisecond).ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(tc.body)))
+			handler(backend, 10*time.Millisecond).ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(tc.body)))
 			if w.Code != tc.status || !strings.Contains(w.Body.String(), tc.errorCode) || strings.Contains(w.Body.String(), "secret") {
 				t.Fatalf("%d: %s", w.Code, w.Body.String())
 			}
@@ -191,7 +199,7 @@ func TestStreamErrorDoesNotLookSuccessful(t *testing.T) {
 		return domain.Result{}, errors.New("failed after first chunk")
 	})
 	w := httptest.NewRecorder()
-	handler(backend, time.Second).ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"codex","messages":[{"role":"user","content":"x"}],"stream":true}`)))
+	handler(backend, time.Second).ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"codex","messages":[{"role":"user","content":"x"}],"stream":true}`)))
 	if !strings.Contains(w.Body.String(), `"error":`) || strings.Contains(w.Body.String(), "[DONE]") || strings.Contains(w.Body.String(), `"finish_reason":"stop"`) {
 		t.Fatal(w.Body.String())
 	}
@@ -210,7 +218,7 @@ func TestStreamEstablishedBeforeBackendStarts(t *testing.T) {
 		return domain.Result{}, ctx.Err()
 	})
 	body := `{"model":"codex","messages":[{"role":"user","content":"silent"}],"stream":true}`
-	handler(backend, 10*time.Millisecond).ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+	handler(backend, 10*time.Millisecond).ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
 	if !strings.Contains(w.Body.String(), "harness_timeout") || strings.Contains(w.Body.String(), "[DONE]") {
 		t.Fatal(w.Body.String())
 	}
@@ -226,11 +234,11 @@ func TestShutdownProducesExplicitError(t *testing.T) {
 					return domain.Result{}, err
 				}
 				cancel(ErrShuttingDown)
-				return domain.Result{}, ctx.Err()
+				return domain.Result{}, errors.New("transport closed during shutdown")
 			})
 			w := httptest.NewRecorder()
 			body := `{"model":"codex","messages":[{"role":"user","content":"x"}],"stream":` + fmtBool(stream) + `}`
-			r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
+			r := localRequest("POST", "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
 			handler(backend, time.Second).ServeHTTP(w, r)
 			want := http.StatusServiceUnavailable
 			if stream {
@@ -265,7 +273,7 @@ func TestStreamAdmissionErrorsRetainHTTPStatus(t *testing.T) {
 	}{{"codex", 429}, {"missing", 404}} {
 		w := httptest.NewRecorder()
 		body := `{"model":"` + tc.model + `","messages":[{"role":"user","content":"x"}],"stream":true}`
-		New(gateway, time.Second, nil).ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+		New(gateway, time.Second, nil).ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
 		if w.Code != tc.status || w.Header().Get("Content-Type") != "application/json" || strings.Contains(w.Body.String(), `"role":"assistant"`) {
 			t.Fatalf("admission error started SSE: %d %s", w.Code, w.Body.String())
 		}
@@ -281,12 +289,12 @@ func TestRequestSizeAndModels(t *testing.T) {
 	})
 	h := handler(backend, time.Second)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"`+strings.Repeat("x", maxRequestBytes)+`"}`)))
+	h.ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"`+strings.Repeat("x", maxRequestBytes)+`"}`)))
 	if w.Code != 413 {
 		t.Fatalf("status=%d", w.Code)
 	}
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/v1/models", nil))
+	h.ServeHTTP(w, localRequest("GET", "/v1/models", nil))
 	var response ModelList
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || response.Object != "list" || len(response.Data) != 1 || response.Data[0].Id != "codex" {
 		t.Fatal(w.Body.String())
@@ -329,7 +337,7 @@ func (h catalogBackend) Models(ctx context.Context) ([]string, error) { return h
 func TestNativeModelDiscoveryHTTP(t *testing.T) {
 	backend := catalogBackend{list: func(context.Context) ([]string, error) { return []string{"native-one", "native-two"}, nil }}
 	w := httptest.NewRecorder()
-	handler(backend, time.Second).ServeHTTP(w, httptest.NewRequest("GET", "/v1/models", nil))
+	handler(backend, time.Second).ServeHTTP(w, localRequest("GET", "/v1/models", nil))
 	var response ModelList
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
@@ -350,7 +358,7 @@ func TestModelDiscoveryHTTPFailures(t *testing.T) {
 				return nil, errors.New("private CLI detail")
 			}}
 			w := httptest.NewRecorder()
-			handler(backend, 10*time.Millisecond).ServeHTTP(w, httptest.NewRequest("GET", "/v1/models", nil))
+			handler(backend, 10*time.Millisecond).ServeHTTP(w, localRequest("GET", "/v1/models", nil))
 			want := 502
 			if timeout {
 				want = 504
@@ -365,7 +373,7 @@ func TestModelDiscoveryHTTPFailures(t *testing.T) {
 func TestBusyModelDiscoveryReturns429(t *testing.T) {
 	backend := catalogBackend{list: func(context.Context) ([]string, error) { return nil, application.ErrBusy }}
 	w := httptest.NewRecorder()
-	handler(backend, time.Second).ServeHTTP(w, httptest.NewRequest("GET", "/v1/models", nil))
+	handler(backend, time.Second).ServeHTTP(w, localRequest("GET", "/v1/models", nil))
 	if w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), "gateway_busy") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
@@ -386,7 +394,7 @@ func TestReasoningEffortForwarded(t *testing.T) {
 			}
 			body += `}`
 			w := httptest.NewRecorder()
-			handler(backend, time.Second).ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+			handler(backend, time.Second).ServeHTTP(w, localRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
 			if w.Code != http.StatusOK {
 				t.Fatalf("%d %s", w.Code, w.Body.String())
 			}

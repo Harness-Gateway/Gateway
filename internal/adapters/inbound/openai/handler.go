@@ -21,7 +21,7 @@ import (
 )
 
 const maxRequestBytes = 1024 * 1024
-const maxResponseBytes = 16 * 1024 * 1024
+const maxResponseBytes = domain.MaxResponseBytes
 const responseWriteTimeout = 10 * time.Second
 
 // ErrShuttingDown distinguishes server termination from an HTTP disconnect.
@@ -48,7 +48,7 @@ func New(gateway *application.Gateway, timeout time.Duration, logger *slog.Logge
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Unknown endpoint", "invalid_request_error", "not_found", nil)
 	})
-	return mux
+	return protectLocalRequests(mux)
 }
 
 func registerAPI(mux *http.ServeMux, method, path string, handler http.HandlerFunc) {
@@ -191,8 +191,8 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	result, err := h.gateway.Complete(ctx, request.Model, input, emit, accepted)
-	if err == nil {
-		err = ctx.Err()
+	if contextErr := ctx.Err(); contextErr != nil {
+		err = contextErr
 	}
 	if err == nil && !wroteText {
 		err = errors.New("harness completed without assistant text")
@@ -203,6 +203,8 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		status, code, message := http.StatusBadGateway, "harness_error", "Local harness failed; check the gateway log and CLI login"
+		errorType := "server_error"
+		var requestError *domain.RequestError
 		switch {
 		case shuttingDown:
 			status, code, message = http.StatusServiceUnavailable, "gateway_shutting_down", "Gateway is shutting down; request was interrupted"
@@ -212,14 +214,18 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 			status, code, message = http.StatusTooManyRequests, "gateway_busy", "Gateway is busy; try again after the active request finishes"
 		case errors.Is(err, context.DeadlineExceeded):
 			status, code, message = http.StatusGatewayTimeout, "harness_timeout", "Local harness exceeded the request timeout"
+		case errors.As(err, &requestError):
+			status, code, message = http.StatusBadRequest, "invalid_request", "Local harness rejected completion parameters; check the model, reasoning effort and gateway log"
+			errorType = "invalid_request_error"
+			h.logger.Warn("completion rejected", "request_id", id, "model", request.Model, "error", err)
 		default:
 			h.logger.Error("completion failed", "request_id", id, "model", request.Model, "error", err)
 		}
 		if started {
 			// Never send a successful finish chunk or [DONE] after an error.
-			_ = writeSSE(w, ErrorResponse{Error: APIError{Message: message, Type: "server_error", Code: &code}})
+			_ = writeSSE(w, ErrorResponse{Error: APIError{Message: message, Type: errorType, Code: &code}})
 		} else {
-			writeError(w, status, message, "server_error", code, nil)
+			writeError(w, status, message, errorType, code, nil)
 		}
 		return
 	}

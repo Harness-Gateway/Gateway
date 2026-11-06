@@ -3,6 +3,9 @@ package domain
 
 import "context"
 
+// MaxResponseBytes bounds decoded UTF-8 assistant text, before JSON encoding.
+const MaxResponseBytes = 16 * 1024 * 1024
+
 type Message struct {
 	Role string
 	Text string

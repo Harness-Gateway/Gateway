@@ -3,6 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -70,6 +71,39 @@ try {
   assert.equal(await page.getByRole('button', { name: /Ask AI/ }).count(), 0);
   await page.screenshot({ path: `${artifacts}/docs-desktop.png` });
   report.cases.push('UI renders with bundled assets, no cloud assistant, and off-origin requests blocked');
+
+  // A different localhost port is a different browser origin. A no-CORS Blob
+  // POST needs no preflight and must still be rejected before starting a CLI.
+  const attacker = createServer((request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/html' });
+    response.end('<!doctype html><title>Cross-origin request fixture</title>');
+  });
+  const attackerContext = await browser.newContext();
+  try {
+    await new Promise((resolve, reject) => {
+      attacker.once('error', reject);
+      attacker.listen(0, '127.0.0.1', resolve);
+    });
+    const attackerPage = await attackerContext.newPage();
+    await attackerPage.goto(`http://127.0.0.1:${attacker.address().port}/`);
+    const pidsBefore = await readdir(`${runtime}/pids`);
+    const rejected = attackerPage.waitForResponse(response => response.url() === `${base}/v1/chat/completions`);
+    const opaqueStatus = await attackerPage.evaluate(async url => {
+      const response = await fetch(`${url}/v1/chat/completions`, {
+        method: 'POST', mode: 'no-cors', body: new Blob([JSON.stringify({
+          model: 'codex', messages: [{ role: 'user', content: 'untrusted request' }],
+        })]),
+      });
+      return response.status;
+    }, base);
+    assert.equal(opaqueStatus, 0);
+    assert.equal((await rejected).status(), 403);
+    assert.deepEqual(await readdir(`${runtime}/pids`), pidsBefore, 'cross-origin POST started a CLI');
+    report.cases.push('cross-origin no-CORS Blob POST is denied before CLI startup');
+  } finally {
+    await attackerContext.close();
+    await new Promise((resolve, reject) => attacker.close(error => error ? reject(error) : resolve()));
+  }
 
   const open = async (method, path) => {
     await page.getByRole('button', { name: new RegExp(`Test Request.*${method} ${path.replaceAll('/', '\\/')}`) }).click();

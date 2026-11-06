@@ -23,9 +23,17 @@ type message struct {
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params"`
 	Result json.RawMessage `json:"result"`
-	Error  *struct {
-		Message string `json:"message"`
-	} `json:"error"`
+	Error  *protocolError  `json:"error"`
+}
+
+type protocolError struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+func (e *protocolError) Error() string {
+	return fmt.Sprintf("codex RPC error %d: %s", e.Code, e.Message)
 }
 
 type connection struct {
@@ -43,7 +51,7 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 	if err != nil {
 		return result, err
 	}
-	defer stop()
+	defer func() { err = errors.Join(err, stop()) }()
 	instructions, input := prompt.Build(request.Messages)
 	params := map[string]any{"ephemeral": true, "approvalPolicy": "never", "sandbox": "read-only"}
 	model := h.Model
@@ -100,6 +108,7 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 				return err
 			}
 			if params.Item.Type == "agentMessage" && !deltaItems[params.Item.ID] && params.Item.Text != "" {
+				deltaItems[params.Item.ID] = true
 				return emit(params.Item.Text)
 			}
 		case "thread/tokenUsage/updated":
@@ -187,6 +196,9 @@ func (c *connection) call(method string, params any, handler func(message) error
 	c.nextID++
 	id := fmt.Sprint(c.nextID)
 	if err := c.input.Encode(map[string]any{"id": c.nextID, "method": method, "params": params}); err != nil {
+		if contextErr := c.ctx.Err(); contextErr != nil {
+			return nil, contextErr
+		}
 		return nil, err
 	}
 	for {
@@ -196,7 +208,13 @@ func (c *connection) call(method string, params any, handler func(message) error
 		}
 		if event.Method == "" && string(event.ID) == id {
 			if event.Error != nil {
-				return nil, fmt.Errorf("codex %s: %s", method, event.Error.Message)
+				err := fmt.Errorf("codex %s: %w", method, event.Error)
+				// -32602 is JSON-RPC Invalid params. Startup and discovery
+				// failures concern gateway protocol/configuration, not user input.
+				if event.Error.Code == -32602 && (method == "thread/start" || method == "turn/start") {
+					return nil, &domain.RequestError{Cause: err}
+				}
+				return nil, err
 			}
 			return event.Result, nil
 		}

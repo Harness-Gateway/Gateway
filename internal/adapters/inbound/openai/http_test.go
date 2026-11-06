@@ -31,7 +31,7 @@ func TestAPIMethodErrors(t *testing.T) {
 	} {
 		t.Run(test.method+" "+test.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			h.ServeHTTP(w, httptest.NewRequest(test.method, test.path, nil))
+			h.ServeHTTP(w, localRequest(test.method, test.path, nil))
 			status, code := http.StatusMethodNotAllowed, "method_not_allowed"
 			if test.allow == "" {
 				status, code = http.StatusNotFound, "not_found"
@@ -67,7 +67,7 @@ func TestRequestBodyLimitIncludesTrailingData(t *testing.T) {
 					calls++
 					return domain.Result{}, emit("ok")
 				}), time.Second)
-				r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(test.body))
+				r := localRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(test.body))
 				if framing == "streamed" {
 					r.ContentLength = -1
 					r.TransferEncoding = []string{"chunked"}
