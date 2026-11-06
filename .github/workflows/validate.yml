@@ -45,6 +45,9 @@ jobs:
           git diff --exit-code -- internal/adapters/inbound/openai/types.gen.go
       - run: go vet ./...
       - run: go test ./...
+      - name: Repeat Windows launcher integration
+        if: runner.os == 'Windows'
+        run: go test -count=5 -timeout=3m ./internal/process
       - name: Test Windows batch entry points
         if: runner.os == 'Windows'
         run: |

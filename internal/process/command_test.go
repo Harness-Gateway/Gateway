@@ -59,13 +59,18 @@ func runFixture(t *testing.T, cmd *exec.Cmd, wantArgs []string, wantExit int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	// This verifies argument handling, not startup latency. Allow cold Node.js
+	// and child executable startup on shared Windows runners.
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	stopOnCancel := context.AfterFunc(ctx, func() { _ = stop() })
 	err = cmd.Wait()
 	stopOnCancel()
 	if cleanupErr := stop(); cleanupErr != nil {
 		t.Fatal(cleanupErr)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("fixture deadline: %v; command error=%v; stdout=%q stderr=%q", ctx.Err(), err, output.String(), diagnostics.String())
 	}
 	if wantExit == 0 && err != nil {
 		t.Fatalf("command failed: %v; stderr=%s", err, diagnostics.String())
