@@ -39,7 +39,7 @@ mkdir -p -- "$bin_dir"
 bin_dir=$(cd -- "$bin_dir" && pwd -P)
 
 printf 'Installing harness-gateway@%s into %s\n' "$version" "$bin_dir"
-GOBIN="$bin_dir" GOWORK=off go install "github.com/harness-gateway/gateway/cmd/harness-gateway@$version"
+GOBIN="$bin_dir" GOWORK=off go install "github.com/harness-gateway/harness-gateway/cmd/harness-gateway@$version"
 [[ -x "$bin_dir/harness-gateway" ]] || fail 'Go did not produce the expected harness-gateway executable'
 "$bin_dir/harness-gateway" -version
 

@@ -17,9 +17,9 @@ import (
 	"time"
 
 	sdk "github.com/github/copilot-sdk/go"
-	"github.com/harness-gateway/gateway/internal/adapters/inbound/openai"
-	"github.com/harness-gateway/gateway/internal/application"
-	"github.com/harness-gateway/gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/adapters/inbound/openai"
+	"github.com/harness-gateway/harness-gateway/internal/application"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
 func TestMain(m *testing.M) {

@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harness-gateway/gateway/internal/adapters/inbound/openai"
-	"github.com/harness-gateway/gateway/internal/adapters/outbound/codex"
-	"github.com/harness-gateway/gateway/internal/adapters/outbound/copilot"
-	"github.com/harness-gateway/gateway/internal/application"
-	"github.com/harness-gateway/gateway/internal/buildinfo"
+	"github.com/harness-gateway/harness-gateway/internal/adapters/inbound/openai"
+	"github.com/harness-gateway/harness-gateway/internal/adapters/outbound/codex"
+	"github.com/harness-gateway/harness-gateway/internal/adapters/outbound/copilot"
+	"github.com/harness-gateway/harness-gateway/internal/application"
+	"github.com/harness-gateway/harness-gateway/internal/buildinfo"
 )
 
 func main() {

@@ -25,7 +25,7 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	const module = "github.com/harness-gateway/gateway"
+	const module = "github.com/harness-gateway/harness-gateway"
 	const version = "v0.1.0"
 	proxy := filepath.Join(directory, "proxy")
 	versions := filepath.Join(proxy, filepath.FromSlash(module), "@v")

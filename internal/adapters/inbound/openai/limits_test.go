@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harness-gateway/gateway/internal/application"
-	"github.com/harness-gateway/gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/application"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
 func TestResponseTextLimitAndRecovery(t *testing.T) {

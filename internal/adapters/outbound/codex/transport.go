@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/harness-gateway/gateway/internal/buildinfo"
+	"github.com/harness-gateway/harness-gateway/internal/buildinfo"
 )
 
 const processWait = 2 * time.Second

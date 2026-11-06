@@ -8,7 +8,7 @@ import (
 
 	sdk "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
-	"github.com/harness-gateway/gateway/internal/buildinfo"
+	"github.com/harness-gateway/harness-gateway/internal/buildinfo"
 )
 
 // Each operation owns its client/process. Authentication stays in the CLI.

@@ -8,8 +8,8 @@ import (
 
 	sdk "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
-	"github.com/harness-gateway/gateway/internal/adapters/outbound/prompt"
-	"github.com/harness-gateway/gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/adapters/outbound/prompt"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
 type Harness struct {

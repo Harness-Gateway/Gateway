@@ -1,4 +1,4 @@
-module github.com/harness-gateway/gateway
+module github.com/harness-gateway/harness-gateway
 
 go 1.25.0
 

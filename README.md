@@ -13,7 +13,7 @@ session. No provider API key or gateway authentication is needed.
 Use Go 1.25+ and the module package path, without `https://`:
 
 ```bash
-go install github.com/harness-gateway/gateway/cmd/harness-gateway@v0.1.0
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.0
 ```
 
 This installs the command **`harness-gateway`** into `GOBIN`, or into
@@ -23,7 +23,7 @@ your `PATH`. Use the exact lower-case module path shown above.
 To install a development snapshot:
 
 ```bash
-go install github.com/harness-gateway/gateway/cmd/harness-gateway@dev
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@dev
 ```
 
 Versioned installs require the corresponding Git tag to be published. Use `@dev`
@@ -45,11 +45,17 @@ bash setup.sh --version v0.1.0 --bin-dir "$HOME/.local/bin" --no-path
 Without `--version`, the script selects `v0.1.0`. It requires Go to be installed.
 It prints an export command for the current terminal; changing `~/.bashrc`
 affects future Bash sessions. Existing CLI authentication stays managed by Codex
-and Copilot. The script can also be downloaded without cloning the repository:
+and Copilot. Install the release without cloning the repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/Gateway/dev/setup.sh -o /tmp/harness-gateway-setup.sh
-bash /tmp/harness-gateway-setup.sh --version dev
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.0/setup.sh | bash
+```
+
+To download and inspect the script before running it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.0/setup.sh -o /tmp/harness-gateway-setup.sh
+bash /tmp/harness-gateway-setup.sh
 ```
 
 ## Run
