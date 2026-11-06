@@ -22,6 +22,7 @@ func main() {
 	live := flag.Bool("live", false, "also run authenticated Codex/Copilot inference (uses account allowance)")
 	models := flag.String("models", "codex,copilot", "comma-separated model IDs for live acceptance")
 	gatewayBinary := flag.String("gateway-binary", "", "existing gateway executable to test instead of building it")
+	outputDirectory := flag.String("output-dir", "", "parent directory for retained per-run diagnostics (default: retain temporary logs only on failure)")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "acceptance does not accept positional arguments")
@@ -29,7 +30,7 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, *live, *models, *gatewayBinary); err != nil {
+	if err := run(ctx, *live, *models, *gatewayBinary, *outputDirectory); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -46,7 +47,7 @@ func command(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-func run(ctx context.Context, live bool, models, gatewayBinary string) error {
+func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory string) (runErr error) {
 	if _, err := os.Stat("examples/spring-ai/pom.xml"); err != nil {
 		return errors.New("run acceptance from the repository root")
 	}
@@ -55,6 +56,11 @@ func run(ctx context.Context, live bool, models, gatewayBinary string) error {
 		return err
 	}
 	defer os.RemoveAll(directory)
+	logs, err := createLogsDirectory(outputDirectory)
+	if err != nil {
+		return err
+	}
+	defer func() { runErr = finishLogs(logs, outputDirectory != "", runErr) }()
 	gateway, err := resolveGateway(ctx, directory, gatewayBinary)
 	if err != nil {
 		return err
@@ -67,24 +73,24 @@ func run(ctx context.Context, live bool, models, gatewayBinary string) error {
 			return err
 		}
 	}
-	pids := filepath.Join(directory, "pids")
+	pids := filepath.Join(logs, "pids")
 	if err := os.Mkdir(pids, 0700); err != nil {
 		return err
 	}
 	env := append(os.Environ(),
 		"HARNESS_GATEWAY_CODEX_TEST=acceptance",
 		"HARNESS_GATEWAY_COPILOT_TEST=acceptance",
-		"HARNESS_GATEWAY_COPILOT_LOG="+filepath.Join(directory, "copilot-methods"),
-		"HARNESS_GATEWAY_COPILOT_PID="+filepath.Join(directory, "copilot-pid"),
+		"HARNESS_GATEWAY_COPILOT_LOG="+filepath.Join(logs, "copilot-methods"),
+		"HARNESS_GATEWAY_COPILOT_PID="+filepath.Join(logs, "copilot-pid"),
 		"HARNESS_GATEWAY_ACCEPTANCE_PIDS="+pids)
-	failure, err := startGateway(ctx, directory, "failure", gateway, env,
+	failure, err := startGateway(ctx, logs, "failure", gateway, env,
 		"--codex-path", paths["codex"], "--copilot-path", paths["copilot"], "-t", "4s", "-c", "1")
 	if err != nil {
 		return err
 	}
 	err = command(ctx, "mvn", "--batch-mode", "--file", "examples/spring-ai/pom.xml",
 		"-Dtest=GatewayFailureTest,GatewayStressTest", "-Dgateway.failure.url="+failure.url+"/v1",
-		"-Dgateway.failure.pids="+pids, "-Dgateway.failure.directory="+directory,
+		"-Dgateway.failure.pids="+pids, "-Dgateway.failure.directory="+logs,
 		"-Dgateway.failure.executable="+gateway,
 		"-Dgateway.failure.codex="+paths["codex"], "-Dgateway.failure.copilot="+paths["copilot"],
 		"-Dsurefire.reportNameSuffix=failure", "test")
@@ -93,7 +99,7 @@ func run(ctx context.Context, live bool, models, gatewayBinary string) error {
 		return err
 	}
 	if live {
-		server, err := startGateway(ctx, directory, "live", gateway, os.Environ())
+		server, err := startGateway(ctx, logs, "live", gateway, os.Environ())
 		if err != nil {
 			return err
 		}

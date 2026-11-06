@@ -45,6 +45,20 @@ jobs:
           git diff --exit-code -- internal/adapters/inbound/openai/types.gen.go
       - run: go vet ./...
       - run: go test ./...
+      - name: Fuzz Copilot framing and authentication
+        if: runner.os == 'Linux'
+        run: |
+          for target in FuzzFrameLength FuzzGuardedFrames FuzzBridgeAuthentication; do
+            go test -run='^$' -fuzz="^${target}$" -fuzztime=10s -parallel=2 ./internal/adapters/outbound/copilot
+          done
+      - name: Save discovered fuzz regressions
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: copilot-fuzz-regressions
+          path: internal/adapters/outbound/copilot/testdata/fuzz/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Repeat Windows launcher integration
         if: runner.os == 'Windows'
         run: go test -count=5 -timeout=3m ./internal/process
@@ -126,7 +140,17 @@ jobs:
       - name: Install the gateway into a private directory
         run: GOBIN="$RUNNER_TEMP/gateway-install" go install ./cmd/harness-gateway
       - name: Run Spring Boot acceptance against the installed gateway
-        run: go run ./tools/acceptance --gateway-binary "$RUNNER_TEMP/gateway-install/harness-gateway"
+        run: go run ./tools/acceptance --gateway-binary "$RUNNER_TEMP/gateway-install/harness-gateway" --output-dir examples/spring-ai/target/acceptance-logs
+      - name: Save Spring AI reports and gateway diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: spring-ai-acceptance-${{ matrix.os }}
+          path: |
+            examples/spring-ai/target/acceptance-logs/
+            examples/spring-ai/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
 
   browser-acceptance:
     runs-on: ubuntu-latest

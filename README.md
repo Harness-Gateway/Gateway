@@ -278,6 +278,9 @@ go run ./tools/acceptance -live
 go run ./tools/acceptance --gateway-binary /absolute/path/to/harness-gateway
 go run ./tools/acceptance --gateway-binary /absolute/path/to/harness-gateway -live
 
+# Keep per-run gateway diagnostics even when acceptance succeeds.
+go run ./tools/acceptance --output-dir examples/spring-ai/target/acceptance-logs
+
 # Include explicit native model selection alongside the default aliases.
 go run ./tools/acceptance -live -models codex,copilot,codex/gpt-6.1-sol,copilot/gpt-6.1-sol
 ```
@@ -285,9 +288,13 @@ go run ./tools/acceptance -live -models codex,copilot,codex/gpt-6.1-sol,copilot/
 By default, the runner builds the gateway and Go CLI fixtures. With
 `--gateway-binary`, it builds only the CLI fixtures and tests the supplied gateway.
 It starts owned gateways on OS-assigned loopback ports, checks readiness, runs
-Maven, and stops the gateways
-and removes temporary files on completion or interruption. It does not stop an
-existing gateway. Surefire reports are kept under `examples/spring-ai/target/`.
+Maven, and stops the gateways. Temporary executables are removed on completion
+or interruption. Failed or interrupted runs retain gateway logs in a separate
+temporary directory and print its path. With `--output-dir`, every run retains
+diagnostics in a unique subdirectory of the specified directory, including logs
+from gateways started by the Java tests. It does not stop an existing gateway.
+Surefire reports are kept under `examples/spring-ai/target/surefire-reports/`.
+CI uploads gateway diagnostics and Surefire reports for each Spring AI job.
 
 To test an already running gateway directly:
 
@@ -306,12 +313,15 @@ The tests start a real Spring Boot context with `spring-ai-starter-model-openai`
 load [`application.properties`](examples/spring-ai/src/test/resources/application.properties),
 import `GatewayHttpConfiguration`, and use the injected `ChatClient.Builder` and
 `OpenAiChatModel` beans. Each harness
-is tested through blocking calls, incremental streaming with token usage,
+is tested through blocking calls, SSE content reconstruction with token usage,
 conversation history, a `MessageChatMemoryAdvisor` conversation across two
 requests, high reasoning effort, and HTTP 400 propagation for unsupported options.
 The reasoning test requires a model that supports `high`; choose compatible
 CLI defaults or explicit native IDs when running it. These tests use the CLIs'
 authenticated upstream inference and may consume the account's usage allowance.
+Native CLIs may return text in a single final chunk. Controlled fixture tests
+verify incremental delivery before completion; live tests validate the complete
+streamed content and usage without requiring a particular number of text chunks.
 
 The separate `GatewayFailureTest` suite runs only through the acceptance runner.
 It uses the real HTTP server, adapters, and Spring Boot starter with Go fixture
