@@ -217,18 +217,15 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 			var written int
 			var writeErr error
 			backendStopped := make(chan struct{})
-			delta := strings.Repeat("x", 256*1024)
-			backend := harnessFunc(func(ctx context.Context, request domain.Request, emit func(string) error) (domain.Result, error) {
+			// A single maximum-sized delta exercises one write deadline. Many
+			// smaller deltas can each succeed and legitimately renew that budget.
+			delta := strings.Repeat("x", maxResponseBytes)
+			backend := harnessFunc(func(_ context.Context, request domain.Request, emit func(string) error) (domain.Result, error) {
 				if request.Messages[0].Text == "recover" {
 					return domain.Result{}, emit("recovered")
 				}
 				defer close(backendStopped)
-				for size := 0; size < maxResponseBytes; size += len(delta) {
-					if err := emit(delta); err != nil {
-						return domain.Result{}, err
-					}
-				}
-				return domain.Result{}, nil
+				return domain.Result{}, emit(delta)
 			})
 			gateway := application.New([]application.Backend{{Model: application.Model{ID: "codex"}, Harness: backend}}, 1)
 			h := New(gateway, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
