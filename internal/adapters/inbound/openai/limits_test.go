@@ -126,9 +126,22 @@ func assertRecovery(t *testing.T, h http.Handler) {
 type writeDeadlineRecorder struct {
 	http.ResponseWriter
 	deadline *time.Time
+	written  *int
+	writeErr *error
 }
 
 func (w writeDeadlineRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w writeDeadlineRecorder) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	*w.written += n
+	if err != nil {
+		*w.writeErr = err
+	} else if n != len(p) {
+		*w.writeErr = io.ErrShortWrite
+	}
+	return n, err
+}
 
 func (w writeDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
 	if err := http.NewResponseController(w.ResponseWriter).SetWriteDeadline(deadline); err != nil {
@@ -143,6 +156,8 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 		t.Run(fmtBool(stream), func(t *testing.T) {
 			finished := make(chan struct{})
 			var lastWriteDeadline, finishedAt time.Time
+			var written int
+			var writeErr error
 			backendStopped := make(chan struct{})
 			delta := strings.Repeat("x", 256*1024)
 			backend := harnessFunc(func(ctx context.Context, request domain.Request, emit func(string) error) (domain.Result, error) {
@@ -160,15 +175,14 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 			gateway := application.New([]application.Backend{{Model: application.Model{ID: "codex"}, Harness: backend}}, 1)
 			h := New(gateway, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				h.ServeHTTP(writeDeadlineRecorder{w, &lastWriteDeadline}, r)
+				h.ServeHTTP(writeDeadlineRecorder{w, &lastWriteDeadline, &written, &writeErr}, r)
 				if r.Header.Get("X-Test-Slow") == "1" {
 					finishedAt = time.Now()
 					close(finished)
 				}
 			}))
-			// Windows can queue a complete large Write despite a small peer
-			// receive buffer. Bound the sender too, so both modes exercise actual
-			// TCP backpressure rather than depending on platform buffer defaults.
+			// Bound both socket buffers to encourage actual TCP backpressure.
+			// Some platforms can still queue a complete buffered response.
 			server.Config.ConnContext = func(ctx context.Context, conn net.Conn) context.Context {
 				if err := conn.(*net.TCPConn).SetWriteBuffer(4096); err != nil {
 					t.Error(err)
@@ -202,8 +216,8 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 					break
 				}
 			}
-			// Keep the socket open without consuming its body. Only the server's
-			// write deadline may release the handler; client cancellation cannot.
+			// Keep the socket open without consuming its body. A blocked write
+			// must expire without relying on client cancellation.
 			select {
 			case <-finished:
 			case <-time.After(13 * time.Second):
@@ -212,8 +226,11 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 			// Buffered JSON encoding consumes part of the server's write budget
 			// before headers reach the client. Observe the actual deadline rather
 			// than starting a second clock after the client reads those headers.
-			if lastWriteDeadline.IsZero() || finishedAt.Before(lastWriteDeadline.Add(-100*time.Millisecond)) {
-				t.Fatal("handler finished before exercising its recorded write deadline")
+			if lastWriteDeadline.IsZero() {
+				t.Fatal("handler did not install a write deadline")
+			}
+			if finishedAt.Before(lastWriteDeadline.Add(-100*time.Millisecond)) && (written < maxResponseBytes || writeErr != nil) {
+				t.Fatalf("handler finished before its deadline without writing the complete response: bytes=%d error=%v", written, writeErr)
 			}
 			if finishedAt.After(lastWriteDeadline.Add(3 * time.Second)) {
 				t.Fatal("handler exceeded its recorded write deadline and cleanup allowance")
