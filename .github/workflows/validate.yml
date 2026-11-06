@@ -54,6 +54,7 @@ jobs:
 
   browser-acceptance:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -69,11 +70,14 @@ jobs:
       - run: npm ci --ignore-scripts
         working-directory: tools/browser
       - name: Install browser
-        run: npx playwright install --with-deps chromium
+        # The hosted Ubuntu runner already provides Chromium's shared libraries.
+        run: npx playwright install --only-shell chromium
+        timeout-minutes: 5
         working-directory: tools/browser
       - name: Test Scalar against Go CLI fixtures
         run: npm test
         working-directory: tools/browser
+        timeout-minutes: 3
         env:
           HARNESS_GATEWAY_BROWSER_OUTPUT_DIR: ${{ runner.temp }}/harness-gateway-browser-output
       - name: Save browser test report and screenshots

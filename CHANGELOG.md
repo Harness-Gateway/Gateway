@@ -17,7 +17,8 @@
   does not produce a misleading inference-failure log.
 - Add browser acceptance tests for streaming, cancellation, process cleanup,
   capacity recovery, errors, custom ports, and mobile rendering. CI also validates
-  the OpenAPI document and generated API types.
+  the OpenAPI document and generated API types. Browser CI uses the pinned
+  headless shell with bounded installation and test durations.
 
 ## v0.1.1
 

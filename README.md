@@ -402,7 +402,7 @@ Run the browser acceptance suite locally with Node.js 26+:
 ```bash
 npm --prefix tools/browser ci --ignore-scripts
 cd tools/browser
-npx playwright install chromium
+npx playwright install --only-shell chromium
 npm test
 ```
 
@@ -411,6 +411,9 @@ Artifacts are written to `tools/browser/artifacts/`. Set
 `HARNESS_GATEWAY_BROWSER_EXECUTABLE` to use an existing Chrome/Chromium executable.
 Node.js and Playwright are development dependencies only; the gateway and its
 embedded documentation do not require them at runtime.
+On Linux hosts missing browser libraries, run `npx playwright install-deps chromium`.
+CI uses the hosted Ubuntu runner's existing libraries and downloads the pinned
+headless shell, with bounded installation and test durations.
 
 API wire types are generated with pinned `oapi-codegen` from
 [`api/openapi.json`](api/openapi.json), a narrowed projection of the
