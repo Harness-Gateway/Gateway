@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/harness-gateway/gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
 func Build(messages []domain.Message) (instructions, input string) {

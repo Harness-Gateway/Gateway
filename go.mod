@@ -1,8 +1,11 @@
-module github.com/harness-gateway/gateway
+module github.com/harness-gateway/harness-gateway
 
 go 1.25.0
 
-require github.com/github/copilot-sdk/go v1.0.28
+require (
+	github.com/github/copilot-sdk/go v1.0.28
+	github.com/spf13/pflag v1.1.0
+)
 
 require (
 	github.com/coder/websocket v1.8.15 // indirect

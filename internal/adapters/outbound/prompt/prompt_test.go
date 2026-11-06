@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness-gateway/gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
 func TestInstructionsAndConversation(t *testing.T) {

@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -16,34 +16,74 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harness-gateway/gateway/internal/adapters/inbound/openai"
-	"github.com/harness-gateway/gateway/internal/adapters/outbound/codex"
-	"github.com/harness-gateway/gateway/internal/adapters/outbound/copilot"
-	"github.com/harness-gateway/gateway/internal/application"
-	"github.com/harness-gateway/gateway/internal/buildinfo"
+	"github.com/spf13/pflag"
+
+	"github.com/harness-gateway/harness-gateway/internal/adapters/inbound/openai"
+	"github.com/harness-gateway/harness-gateway/internal/adapters/outbound/codex"
+	"github.com/harness-gateway/harness-gateway/internal/adapters/outbound/copilot"
+	"github.com/harness-gateway/harness-gateway/internal/application"
+	"github.com/harness-gateway/harness-gateway/internal/buildinfo"
 )
 
 func main() {
-	showVersion := flag.Bool("version", false, "print version and build identity")
-	address := flag.String("listen", "127.0.0.1:8080", "loopback HTTP listen address")
-	harnesses := flag.String("harnesses", "codex,copilot", "comma-separated enabled harnesses")
-	directory := flag.String("directory", ".", "working directory for CLI requests")
-	timeout := flag.Duration("timeout", 3*time.Minute, "maximum duration of a completion")
-	concurrency := flag.Int("concurrency", 2, "maximum simultaneous completions")
-	codexPath := flag.String("codex-path", "codex", "Codex CLI executable")
-	copilotPath := flag.String("copilot-path", "copilot", "Copilot CLI executable")
-	codexModel := flag.String("codex-model", "", "native Codex model (empty uses CLI default)")
-	copilotModel := flag.String("copilot-model", "", "native Copilot model (empty uses CLI default)")
-	flag.Parse()
-	if *showVersion {
+	options, err := parseOptions(os.Args[1:], os.Stderr)
+	if errors.Is(err, pflag.ErrHelp) {
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\nRun 'harness-gateway --help' for usage.\n", err)
+		os.Exit(2)
+	}
+	if options.version {
 		fmt.Println(buildinfo.String())
 		return
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := run(*address, *harnesses, *directory, *timeout, *concurrency, *codexPath, *copilotPath, *codexModel, *copilotModel, logger); err != nil {
+	if err := run(options.address, options.harnesses, options.directory, options.timeout, options.concurrency, options.codexPath, options.copilotPath, options.codexModel, options.copilotModel, logger); err != nil {
 		logger.Error("gateway stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+type options struct {
+	address, harnesses, directory string
+	codexPath, copilotPath        string
+	codexModel, copilotModel      string
+	timeout                       time.Duration
+	concurrency                   int
+	version                       bool
+}
+
+func parseOptions(args []string, output io.Writer) (options, error) {
+	var options options
+	flags := pflag.NewFlagSet("harness-gateway", pflag.ContinueOnError)
+	flags.SetOutput(output)
+	flags.Usage = func() {
+		fmt.Fprintln(output, "Usage: harness-gateway [options]\n\nOptions:")
+		flags.PrintDefaults()
+	}
+	help := flags.BoolP("help", "h", false, "show this help")
+	flags.BoolVarP(&options.version, "version", "v", false, "print version and build identity")
+	flags.StringVarP(&options.address, "listen", "l", "127.0.0.1:8080", "loopback HTTP listen address")
+	flags.StringVarP(&options.harnesses, "harnesses", "H", "codex,copilot", "comma-separated enabled harnesses")
+	flags.StringVarP(&options.directory, "directory", "d", ".", "working directory for CLI requests")
+	flags.DurationVarP(&options.timeout, "timeout", "t", 3*time.Minute, "maximum duration of a completion")
+	flags.IntVarP(&options.concurrency, "concurrency", "c", 2, "maximum simultaneous completions")
+	flags.StringVar(&options.codexPath, "codex-path", "codex", "Codex CLI executable")
+	flags.StringVar(&options.copilotPath, "copilot-path", "copilot", "Copilot CLI executable")
+	flags.StringVar(&options.codexModel, "codex-model", "", "native Codex model (empty uses CLI default)")
+	flags.StringVar(&options.copilotModel, "copilot-model", "", "native Copilot model (empty uses CLI default)")
+	if err := flags.Parse(args); err != nil {
+		return options, err
+	}
+	if *help {
+		flags.Usage()
+		return options, pflag.ErrHelp
+	}
+	if flags.NArg() != 0 {
+		return options, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	return options, nil
 }
 
 func run(address, enabled, directory string, timeout time.Duration, concurrency int, codexPath, copilotPath, codexModel, copilotModel string, logger *slog.Logger) error {

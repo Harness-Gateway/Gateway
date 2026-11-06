@@ -26,9 +26,9 @@ final class FixtureGateway implements AutoCloseable {
         log = directory.resolve("gateway.log");
         turnStarted = directory.resolve("turn-started");
         var builder = new ProcessBuilder(System.getProperty("gateway.failure.executable"),
-            "-listen", "127.0.0.1:0", "-harnesses", model,
-            "-" + model + "-path", System.getProperty("gateway.failure." + model),
-            "-timeout", "30s", "-concurrency", Integer.toString(concurrency));
+            "--listen", "127.0.0.1:0", "--harnesses", model,
+            "--" + model + "-path", System.getProperty("gateway.failure." + model),
+            "--timeout", "30s", "--concurrency", Integer.toString(concurrency));
         var env = builder.environment();
         env.put("HARNESS_GATEWAY_" + model.toUpperCase(java.util.Locale.ROOT) + "_TEST", mode);
         env.put("HARNESS_GATEWAY_ACCEPTANCE_PIDS", System.getProperty("gateway.failure.pids"));

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harness-gateway/gateway/internal/application"
-	"github.com/harness-gateway/gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/application"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
 type harnessFunc func(context.Context, domain.Request, func(string) error) (domain.Result, error)

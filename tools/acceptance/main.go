@@ -72,7 +72,7 @@ func run(ctx context.Context, live bool, models string) error {
 		"HARNESS_GATEWAY_COPILOT_PID="+filepath.Join(directory, "copilot-pid"),
 		"HARNESS_GATEWAY_ACCEPTANCE_PIDS="+pids)
 	failure, err := startGateway(ctx, directory, "failure", gateway, env,
-		"-codex-path", paths["codex"], "-copilot-path", paths["copilot"], "-timeout", "4s", "-concurrency", "1")
+		"--codex-path", paths["codex"], "--copilot-path", paths["copilot"], "-t", "4s", "-c", "1")
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func startGateway(ctx context.Context, directory, name, executable string, env [
 	if err != nil {
 		return nil, err
 	}
-	p := &gatewayProcess{cmd: exec.Command(executable, append([]string{"-listen", "127.0.0.1:0"}, args...)...), done: make(chan struct{}), log: log}
+	p := &gatewayProcess{cmd: exec.Command(executable, append([]string{"-l", "127.0.0.1:0"}, args...)...), done: make(chan struct{}), log: log}
 	configureCommand(p.cmd)
 	p.cmd.Env = env
 	p.cmd.Stdout, p.cmd.Stderr = log, io.MultiWriter(log, os.Stderr)

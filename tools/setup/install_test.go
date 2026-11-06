@@ -25,7 +25,7 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	const module = "github.com/harness-gateway/gateway"
+	const module = "github.com/harness-gateway/harness-gateway"
 	const version = "v0.1.0"
 	proxy := filepath.Join(directory, "proxy")
 	versions := filepath.Join(proxy, filepath.FromSlash(module), "@v")
@@ -131,8 +131,8 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	if !strings.Contains(string(output), "Harness-Gateway v0.1.0 (module v0.1.0;") {
 		t.Fatalf("installed binary lost module provenance: %s", output)
 	}
-	output, err = exec.CommandContext(t.Context(), filepath.Join(bin, "harness-gateway"), "-version",
-		"-codex-path", filepath.Join(directory, "missing-codex"), "-copilot-path", filepath.Join(directory, "missing-copilot")).CombinedOutput()
+	output, err = exec.CommandContext(t.Context(), filepath.Join(bin, "harness-gateway"), "-v",
+		"--codex-path", filepath.Join(directory, "missing-codex"), "--copilot-path", filepath.Join(directory, "missing-copilot")).CombinedOutput()
 	if err != nil || !strings.Contains(string(output), "module v0.1.0") {
 		t.Fatalf("installed command needs a source checkout or harness CLI: %v\n%s", err, output)
 	}

@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness-gateway/gateway/internal/application"
-	"github.com/harness-gateway/gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/application"
+	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
 const maxRequestBytes = 1024 * 1024

@@ -13,7 +13,7 @@ session. No provider API key or gateway authentication is needed.
 Use Go 1.25+ and the module package path, without `https://`:
 
 ```bash
-go install github.com/harness-gateway/gateway/cmd/harness-gateway@v0.1.0
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.0
 ```
 
 This installs the command **`harness-gateway`** into `GOBIN`, or into
@@ -23,7 +23,7 @@ your `PATH`. Use the exact lower-case module path shown above.
 To install a development snapshot:
 
 ```bash
-go install github.com/harness-gateway/gateway/cmd/harness-gateway@dev
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@dev
 ```
 
 Versioned installs require the corresponding Git tag to be published. Use `@dev`
@@ -45,11 +45,17 @@ bash setup.sh --version v0.1.0 --bin-dir "$HOME/.local/bin" --no-path
 Without `--version`, the script selects `v0.1.0`. It requires Go to be installed.
 It prints an export command for the current terminal; changing `~/.bashrc`
 affects future Bash sessions. Existing CLI authentication stays managed by Codex
-and Copilot. The script can also be downloaded without cloning the repository:
+and Copilot. Install the release without cloning the repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/Gateway/dev/setup.sh -o /tmp/harness-gateway-setup.sh
-bash /tmp/harness-gateway-setup.sh --version dev
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.0/setup.sh | bash
+```
+
+To download and inspect the script before running it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.0/setup.sh -o /tmp/harness-gateway-setup.sh
+bash /tmp/harness-gateway-setup.sh
 ```
 
 ## Run
@@ -67,7 +73,7 @@ version, source revision, and platform:
 
 ```bash
 go build -o harness-gateway ./cmd/harness-gateway
-./harness-gateway -version
+./harness-gateway --version
 ```
 
 Version output works without either harness CLI installed. Builds from modified
@@ -82,18 +88,39 @@ default. CLI authentication remains managed by the CLI.
 
 ```bash
 # Enable a single harness, set its native model and working directory.
-harness-gateway -harnesses codex -codex-model YOUR_CODEX_MODEL -directory /path/to/project
+harness-gateway --harnesses codex --codex-model YOUR_CODEX_MODEL --directory /path/to/project
 
 # Set a native model for each of the two model aliases.
-harness-gateway -codex-model YOUR_CODEX_MODEL -copilot-model YOUR_COPILOT_MODEL
+harness-gateway --codex-model YOUR_CODEX_MODEL --copilot-model YOUR_COPILOT_MODEL
 ```
 
-Use `-h` for executable paths, listen address, timeout (default `3m`), and
+Use `--help` (or `-h`) for executable paths, listen address, timeout (default `3m`), and
 concurrency (default `2`). The gateway passes a read-only sandbox and never-approve
 policy to Codex. Copilot's SDK session has an empty tool allowlist and rejects
 permission requests. Interactive questions and client-defined tools are unsupported.
 
-The `-codex-model` and `-copilot-model` flags configure the short aliases only;
+Long options use `--`; their short aliases use `-` followed by one letter:
+
+| Short | Long | Purpose |
+| --- | --- | --- |
+| `-h` | `--help` | Show help |
+| `-v` | `--version` | Print version and build identity |
+| `-l` | `--listen` | Set the loopback listen address |
+| `-H` | `--harnesses` | Select enabled harnesses |
+| `-d` | `--directory` | Set the CLI working directory |
+| `-t` | `--timeout` | Set the completion timeout |
+| `-c` | `--concurrency` | Set the maximum simultaneous completions |
+| — | `--codex-path` | Select the Codex executable |
+| — | `--copilot-path` | Select the Copilot executable |
+| — | `--codex-model` | Set the default Codex model |
+| — | `--copilot-model` | Set the default Copilot model |
+
+For example, `harness-gateway -l 127.0.0.1:8090` is equivalent to
+`harness-gateway --listen 127.0.0.1:8090`. Both `--option value` and
+`--option=value` are accepted. Single-dash long spellings such as `-listen`
+and `-version` are not supported; use `-l`/`--listen` and `-v`/`--version`.
+
+The `--codex-model` and `--copilot-model` flags configure the short aliases only;
 an explicit namespaced model ID overrides that default for its request. Discovery
 uses Codex's documented `model/list` with pagination and the Copilot SDK's
 `ListModels`. Hidden Codex models, models without text input, and explicitly
