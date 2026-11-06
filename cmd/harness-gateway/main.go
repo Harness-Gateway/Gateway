@@ -38,8 +38,8 @@ func main() {
 		fmt.Println(buildinfo.String())
 		return
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := run(options.address, options.harnesses, options.directory, options.timeout, options.concurrency, options.codexPath, options.copilotPath, options.codexModel, options.copilotModel, logger); err != nil {
+	logger := newLogger(os.Stderr, options.logFormat)
+	if err := run(options, logger); err != nil {
 		logger.Error("gateway stopped", "error", err)
 		os.Exit(1)
 	}
@@ -47,6 +47,7 @@ func main() {
 
 type options struct {
 	address, harnesses, directory string
+	logFormat                     string
 	codexPath, copilotPath        string
 	codexModel, copilotModel      string
 	timeout                       time.Duration
@@ -69,6 +70,7 @@ func parseOptions(args []string, output io.Writer) (options, error) {
 	flags.StringVarP(&options.directory, "directory", "d", ".", "working directory for CLI requests")
 	flags.DurationVarP(&options.timeout, "timeout", "t", 3*time.Minute, "maximum duration of a completion")
 	flags.IntVarP(&options.concurrency, "concurrency", "c", 2, "maximum simultaneous completions")
+	flags.StringVar(&options.logFormat, "log-format", "text", "log format: text or json (JSON disables the terminal startup panel)")
 	flags.StringVar(&options.codexPath, "codex-path", "codex", "Codex CLI executable")
 	flags.StringVar(&options.copilotPath, "copilot-path", "copilot", "Copilot CLI executable")
 	flags.StringVar(&options.codexModel, "codex-model", "", "native Codex model (empty uses CLI default)")
@@ -83,17 +85,20 @@ func parseOptions(args []string, output io.Writer) (options, error) {
 	if flags.NArg() != 0 {
 		return options, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
 	}
+	if options.logFormat != "text" && options.logFormat != "json" {
+		return options, errors.New("log-format must be text or json")
+	}
 	return options, nil
 }
 
-func run(address, enabled, directory string, timeout time.Duration, concurrency int, codexPath, copilotPath, codexModel, copilotModel string, logger *slog.Logger) error {
-	if err := loopbackAddress(address); err != nil {
+func run(options options, logger *slog.Logger) error {
+	if err := loopbackAddress(options.address); err != nil {
 		return err
 	}
-	if timeout <= 0 || concurrency < 1 {
+	if options.timeout <= 0 || options.concurrency < 1 {
 		return errors.New("timeout and concurrency must be positive")
 	}
-	directory, err := filepath.Abs(directory)
+	directory, err := filepath.Abs(options.directory)
 	if err != nil {
 		return err
 	}
@@ -105,8 +110,9 @@ func run(address, enabled, directory string, timeout time.Duration, concurrency 
 		return errors.New("directory must be a directory")
 	}
 	var backends []application.Backend
+	var harnesses []harnessStatus
 	seen := map[string]bool{}
-	for _, name := range strings.Split(enabled, ",") {
+	for _, name := range strings.Split(options.harnesses, ",") {
 		name = strings.TrimSpace(name)
 		if seen[name] {
 			return fmt.Errorf("duplicate harness %q", name)
@@ -114,7 +120,7 @@ func run(address, enabled, directory string, timeout time.Duration, concurrency 
 		seen[name] = true
 		switch name {
 		case "codex":
-			path, err := exec.LookPath(codexPath)
+			path, err := exec.LookPath(options.codexPath)
 			if err != nil {
 				return fmt.Errorf("find codex CLI: %w", err)
 			}
@@ -122,9 +128,10 @@ func run(address, enabled, directory string, timeout time.Duration, concurrency 
 			if err != nil {
 				return err
 			}
-			backends = append(backends, application.Backend{Model: application.Model{ID: name, Provider: name}, Harness: &codex.Harness{Path: path, Model: codexModel, Directory: directory}})
+			backends = append(backends, application.Backend{Model: application.Model{ID: name, Provider: name}, Harness: &codex.Harness{Path: path, Model: options.codexModel, Directory: directory}})
+			harnesses = append(harnesses, harnessStatus{name: name, executable: path, model: options.codexModel})
 		case "copilot":
-			path, err := exec.LookPath(copilotPath)
+			path, err := exec.LookPath(options.copilotPath)
 			if err != nil {
 				return fmt.Errorf("find copilot CLI: %w", err)
 			}
@@ -132,26 +139,39 @@ func run(address, enabled, directory string, timeout time.Duration, concurrency 
 			if err != nil {
 				return err
 			}
-			backends = append(backends, application.Backend{Model: application.Model{ID: name, Provider: name}, Harness: &copilot.Harness{Path: path, Model: copilotModel, Directory: directory}})
+			backends = append(backends, application.Backend{Model: application.Model{ID: name, Provider: name}, Harness: &copilot.Harness{Path: path, Model: options.copilotModel, Directory: directory}})
+			harnesses = append(harnesses, harnessStatus{name: name, executable: path, model: options.copilotModel})
 		default:
 			return fmt.Errorf("unknown harness %q", name)
 		}
 	}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	harnesses = identifyHarnessVersions(signals, harnesses)
+	if signals.Err() != nil {
+		return nil
+	}
+	for _, harness := range harnesses {
+		if harness.versionError != nil {
+			logger.Warn("Harness CLI version unavailable", "harness", harness.name, "executable", harness.executable, "error", harness.versionError)
+		}
+	}
 	root, cancelRequests := context.WithCancelCause(context.Background())
 	defer cancelRequests(context.Canceled)
 	server := &http.Server{
-		Addr:              address,
-		Handler:           openai.New(application.New(backends, concurrency), timeout, logger),
+		Addr:              options.address,
+		Handler:           openai.New(application.New(backends, options.concurrency), options.timeout, logger),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return root },
 	}
-	listener, err := net.Listen("tcp", address)
+	listener, err := net.Listen("tcp", options.address)
 	if err != nil {
 		return err
 	}
-	logger.Info("Harness-Gateway listening", "url", "http://"+listener.Addr().String(), "harnesses", enabled, "directory", directory)
+	startup := startupStatus{baseURL: "http://" + listener.Addr().String(), directory: directory, timeout: options.timeout, concurrency: options.concurrency, harnesses: harnesses}
+	if err := reportStartup(os.Stderr, logger, options.logFormat, startup); err != nil {
+		return errors.Join(err, listener.Close())
+	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- server.Serve(listener) }()
 	select {
@@ -161,6 +181,7 @@ func run(address, enabled, directory string, timeout time.Duration, concurrency 
 		}
 		return nil
 	case <-signals.Done():
+		logger.Info("Harness-Gateway shutting down")
 		cancelRequests(openai.ErrShuttingDown)
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -168,6 +189,7 @@ func run(address, enabled, directory string, timeout time.Duration, concurrency 
 			_ = server.Close()
 			return err
 		}
+		logger.Info("Harness-Gateway stopped")
 		return nil
 	}
 }

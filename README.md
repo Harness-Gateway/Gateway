@@ -13,7 +13,7 @@ session. No provider API key or gateway authentication is needed.
 Use Go 1.25+ and the module package path, without `https://`:
 
 ```bash
-go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.1
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.2
 ```
 
 This installs the command **`harness-gateway`** into `GOBIN`, or into
@@ -39,22 +39,22 @@ bash setup.sh
 bash setup.sh --version dev
 
 # Select another module version or destination; avoid editing ~/.bashrc.
-bash setup.sh --version v0.1.1 --bin-dir "$HOME/.local/bin" --no-path
+bash setup.sh --version v0.1.2 --bin-dir "$HOME/.local/bin" --no-path
 ```
 
-Without `--version`, the script selects `v0.1.1`. It requires Go to be installed.
+Without `--version`, the script selects `v0.1.2`. It requires Go to be installed.
 It prints an export command for the current terminal; changing `~/.bashrc`
 affects future Bash sessions. Existing CLI authentication stays managed by Codex
 and Copilot. Install the release without cloning the repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.1/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.2/setup.sh | bash
 ```
 
 To download and inspect the script before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.1/setup.sh -o /tmp/harness-gateway-setup.sh
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.2/setup.sh -o /tmp/harness-gateway-setup.sh
 bash /tmp/harness-gateway-setup.sh
 ```
 
@@ -68,8 +68,8 @@ The integration has been exercised with Codex CLI 0.166.0 and Copilot CLI 1.0.10
 harness-gateway
 ```
 
-The release version is **v0.1.1**. To build a local executable and inspect its
-version, source revision, and platform:
+The release version is **v0.1.2**. See [release notes](CHANGELOG.md). To build a
+local executable and inspect its version, source revision, and platform:
 
 ```bash
 go build -o harness-gateway ./cmd/harness-gateway
@@ -110,6 +110,7 @@ Long options use `--`; their short aliases use `-` followed by one letter:
 | `-d` | `--directory` | Set the CLI working directory |
 | `-t` | `--timeout` | Set the completion timeout |
 | `-c` | `--concurrency` | Set the maximum simultaneous completions |
+| — | `--log-format` | Choose `text` (default) or `json` logs |
 | — | `--codex-path` | Select the Codex executable |
 | — | `--copilot-path` | Select the Copilot executable |
 | — | `--codex-model` | Set the default Codex model |
@@ -155,6 +156,53 @@ On SIGINT or SIGTERM, the gateway cancels active CLI operations and waits for
 request cleanup. Interrupted buffered completions return HTTP 503 with code
 `gateway_shutting_down`; established SSE streams emit that error without a
 successful finish chunk or `[DONE]`.
+
+## Startup status and logs
+
+In an interactive terminal, startup displays a status panel with the gateway
+version and build, repository, actual bound URLs, and a table of enabled harnesses:
+installed CLI version, configured default model, and resolved executable. On
+narrow terminals, executable paths move below their rows without being clipped.
+The panel also shows working directory, concurrency, and timeout, and appears
+after the listener binds successfully.
+
+Startup queries each enabled executable with `--version`. Checks run in parallel,
+are capped at two seconds each, and capture at most 4 KiB of output. Failed or
+unrecognized version checks show `unavailable` and log a warning; they do not
+prevent startup. Model settings show `CLI default` when no override was supplied.
+Startup does not run inference or probe account authentication. Structured startup
+logs include a `harness_versions` object for log collectors.
+
+Colors follow terminal detection and are disabled by `NO_COLOR=1` or `TERM=dumb`.
+Redirected output retains structured text logs. Use JSON logs for services or
+log collectors; this also disables the terminal panel:
+
+```bash
+harness-gateway --log-format json
+```
+
+Logs go to stderr, including request IDs, durations, failures, and shutdown
+events. `harness-gateway --version` prints its build identity to stdout.
+
+## Interactive API
+
+Open **<http://127.0.0.1:8080/docs>** to explore and test the API with the embedded
+Scalar interface. Use the configured listener's port if you changed it. The
+startup log includes the documentation URL. The OpenAPI document is available
+at **`/openapi.json`**.
+
+1. Open **Discover available models**, select **Test Request**, and send the
+   request to see the CLI aliases and available native model IDs.
+2. Open **Create a chat completion** and choose a buffered or streaming example
+   for Codex or Copilot. Edit the prompt or copy an exact model ID from discovery.
+3. Send the request. Streaming examples set `stream: true`; cancel an active
+   request to stop its CLI operation and release gateway capacity.
+
+No API key is needed in the interface. Requests go directly to the same gateway
+host and port using the CLIs' existing authentication. The pinned Scalar bundle,
+specification, and UI assets are included in the Go binary; loading the interface
+requires no npm, CDN, external fonts, or hosted request proxy. Provider inference
+still uses the CLIs' normal network connections.
 
 ## Spring AI
 
@@ -338,9 +386,31 @@ both response modes, and verify subsequent requests recover. Real TCP tests keep
 clients connected without consuming the response body and check the ten-second
 write budget releases both buffered and streaming handlers and backend capacity.
 
-GitHub Actions runs formatting, vet, race tests, the Go build, and the Spring Boot
-failure and stress acceptance suites with Java 27 and Go CLI fixtures.
+GitHub Actions runs formatting, OpenAPI validation, generated-type reproducibility,
+vet, race tests, the Go build, and the Spring Boot failure and stress acceptance
+suites with Java 27 and Go CLI fixtures.
+An isolated Playwright browser job tests the Scalar interface against the same
+Go CLI fixtures. It checks model discovery, buffered and streamed responses,
+output before stream completion, cancellation and actual CLI process cleanup,
+capacity recovery, error display, custom ports, mobile rendering, and absence of
+off-origin requests. These tests need no logged-in harnesses. Reports, gateway
+logs, and screenshots are uploaded as the `scalar-browser-acceptance` artifact.
 Authenticated live acceptance remains a local gate, separate from CI.
+
+Run the browser acceptance suite locally with Node.js 26+:
+
+```bash
+npm --prefix tools/browser ci --ignore-scripts
+cd tools/browser
+npx playwright install chromium
+npm test
+```
+
+Artifacts are written to `tools/browser/artifacts/`. Set
+`HARNESS_GATEWAY_BROWSER_OUTPUT_DIR` to choose another directory, or
+`HARNESS_GATEWAY_BROWSER_EXECUTABLE` to use an existing Chrome/Chromium executable.
+Node.js and Playwright are development dependencies only; the gateway and its
+embedded documentation do not require them at runtime.
 
 API wire types are generated with pinned `oapi-codegen` from
 [`api/openapi.json`](api/openapi.json), a narrowed projection of the
@@ -354,6 +424,13 @@ go run ./tools/project-openapi -input /path/to/downloaded/openapi.json
 go generate ./api
 ```
 
+The projection also defines the gateway's supported operations, constraints,
+and runnable examples. Tests verify that the published document matches this
+contract, references resolve locally, and all four completion examples pass
+through the real HTTP handler. The pinned Scalar asset's checksum, license,
+and update procedure are recorded in
+[`docs/assets/README.md`](internal/adapters/inbound/openai/docs/assets/README.md).
+
 Provider integration references:
 [Codex App Server](https://learn.chatgpt.com/docs/app-server),
 [Copilot Go SDK](https://github.com/github/copilot-sdk/tree/main/go),
@@ -364,3 +441,6 @@ Provider integration references:
 Harness-Gateway is licensed under the [Apache License, Version 2.0](LICENSE).
 The upstream OpenAI specification's MIT license is retained in
 [`api/LICENSE.openai`](api/LICENSE.openai).
+The bundled Scalar API Reference is MIT licensed; its license is retained in
+[`LICENSE.scalar`](internal/adapters/inbound/openai/docs/assets/LICENSE.scalar)
+and is available from the running gateway at `/docs/assets/LICENSE.scalar`.

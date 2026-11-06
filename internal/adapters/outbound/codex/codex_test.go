@@ -18,6 +18,10 @@ import (
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("HARNESS_GATEWAY_CODEX_TEST"); mode != "" {
+		if len(os.Args) == 2 && os.Args[1] == "--version" {
+			fmt.Println("codex-cli 0.0.0-fixture")
+			os.Exit(0)
+		}
 		fakeServer(mode)
 		os.Exit(0)
 	}

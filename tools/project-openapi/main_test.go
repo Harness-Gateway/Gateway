@@ -1,9 +1,29 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/harness-gateway/harness-gateway/api"
 )
+
+func TestPublishedGatewayContractIsCurrent(t *testing.T) {
+	var document struct {
+		Components struct{ Schemas node }
+	}
+	if err := json.Unmarshal(api.OpenAPI, &document); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := json.MarshalIndent(gatewayDocument(document.Components.Schemas), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(append(updated, '\n'), api.OpenAPI) {
+		t.Fatal("gateway documentation is stale; reproduce the OpenAPI projection and run go generate ./api")
+	}
+}
 
 func TestChecksumRequired(t *testing.T) {
 	if _, err := project([]byte(`{"components":{"schemas":{}}}`)); err == nil {

@@ -19,11 +19,17 @@ jobs:
           go-version-file: go.mod
       - name: Check formatting
         run: |
-          files=$(gofmt -l cmd internal tools api/generate.go)
+          files=$(gofmt -l cmd internal tools api)
           if [ -n "$files" ]; then
             printf '%s\n' "$files"
             exit 1
           fi
+      - name: Validate OpenAPI document and examples
+        run: go run github.com/getkin/kin-openapi/cmd/validate@v0.133.0 -- api/openapi.json
+      - name: Check generated API types
+        run: |
+          go generate ./api
+          git diff --exit-code -- internal/adapters/inbound/openai/types.gen.go
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build ./...
@@ -45,3 +51,36 @@ jobs:
           cache-dependency-path: examples/spring-ai/pom.xml
       - name: Run Spring Boot acceptance with Go CLI fixtures
         run: go run ./tools/acceptance
+
+  browser-acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: tools/browser/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: tools/browser
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+        working-directory: tools/browser
+      - name: Test Scalar against Go CLI fixtures
+        run: npm test
+        working-directory: tools/browser
+        env:
+          HARNESS_GATEWAY_BROWSER_OUTPUT_DIR: ${{ runner.temp }}/harness-gateway-browser-output
+      - name: Save browser test report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: scalar-browser-acceptance
+          path: ${{ runner.temp }}/harness-gateway-browser-output
+          if-no-files-found: ignore
+          retention-days: 7

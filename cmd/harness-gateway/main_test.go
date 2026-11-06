@@ -34,7 +34,8 @@ func TestShortAndLongOptionsAreEquivalent(t *testing.T) {
 	directory := t.TempDir()
 	want := options{
 		address: "127.0.0.1:8090", harnesses: "codex", directory: directory,
-		timeout: 45 * time.Second, concurrency: 4, version: true,
+		logFormat: "text",
+		timeout:   45 * time.Second, concurrency: 4, version: true,
 		codexPath: "missing-codex", copilotPath: "missing-copilot",
 		codexModel: "test-codex-model", copilotModel: "test-copilot-model",
 	}
@@ -57,7 +58,7 @@ func TestShortAndLongOptionsAreEquivalent(t *testing.T) {
 
 func TestOptionDefaults(t *testing.T) {
 	want := options{address: "127.0.0.1:8080", harnesses: "codex,copilot", directory: ".",
-		timeout: 3 * time.Minute, concurrency: 2, codexPath: "codex", copilotPath: "copilot"}
+		logFormat: "text", timeout: 3 * time.Minute, concurrency: 2, codexPath: "codex", copilotPath: "copilot"}
 	got, err := parseOptions(nil, io.Discard)
 	if err != nil || got != want {
 		t.Fatalf("default options: %+v, %v; want %+v", got, err, want)
@@ -69,12 +70,20 @@ func TestInvalidOptions(t *testing.T) {
 		{"-listen", "127.0.0.1:8090"}, {"-version"}, {"--unknown"}, {"-z"},
 		{"--listen"}, {"--timeout", "invalid"}, {"--concurrency", "invalid"},
 		{"unexpected"}, {"--listen", "127.0.0.1:8090", "unexpected"},
+		{"--log-format", "yaml"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			if _, err := parseOptions(args, io.Discard); err == nil || errors.Is(err, pflag.ErrHelp) {
 				t.Fatalf("invalid options %v returned %v", args, err)
 			}
 		})
+	}
+}
+
+func TestJSONLogFormatOption(t *testing.T) {
+	options, err := parseOptions([]string{"--log-format=json"}, io.Discard)
+	if err != nil || options.logFormat != "json" {
+		t.Fatalf("JSON logging option: %q, %v", options.logFormat, err)
 	}
 }
 

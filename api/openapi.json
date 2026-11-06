@@ -31,6 +31,19 @@
         "additionalProperties": false,
         "properties": {
           "content": {
+            "description": "Plain text or a nonempty array of text parts. Images, audio, tool calls, and extra content-part fields are unsupported.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TextPart"
+                },
+                "minItems": 1,
+                "type": "array"
+              }
+            ],
             "x-go-type": "json.RawMessage"
           },
           "role": {
@@ -61,21 +74,36 @@
             "type": "array"
           },
           "model": {
+            "description": "Use codex or copilot for the CLI's configured default, or an exact ID from GET /v1/models such as `codex/\u003cnative-model-id\u003e`.",
+            "example": "codex",
             "type": "string"
           },
           "n": {
             "default": 1,
+            "description": "Only one completion is supported; omit this field or use 1.",
             "example": 1,
-            "maximum": 128,
+            "maximum": 1,
             "minimum": 1,
             "nullable": true,
             "type": "integer"
           },
           "reasoning_effort": {
-            "type": "string"
+            "description": "Optional reasoning effort forwarded to the CLI. Supported levels depend on the selected native model; omission preserves its default.",
+            "enum": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "type": "string",
+            "x-go-type": "string"
           },
           "stream": {
             "default": false,
+            "description": "When true, return incremental server-sent events instead of a buffered JSON response.",
             "nullable": true,
             "type": "boolean"
           },
@@ -257,6 +285,21 @@
         ],
         "type": "object"
       },
+      "Health": {
+        "properties": {
+          "status": {
+            "enum": [
+              "ok"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
       "Model": {
         "additionalProperties": false,
         "properties": {
@@ -332,15 +375,40 @@
       },
       "StreamOptions": {
         "additionalProperties": false,
+        "description": "Only valid with stream=true.",
         "properties": {
           "include_obfuscation": {
-            "type": "boolean"
+            "enum": [
+              false
+            ],
+            "type": "boolean",
+            "x-go-type": "bool"
           },
           "include_usage": {
             "type": "boolean"
           }
         },
         "required": [],
+        "type": "object"
+      },
+      "TextPart": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "text"
+            ],
+            "type": "string",
+            "x-go-type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "text"
+        ],
         "type": "object"
       },
       "Usage": {
@@ -369,10 +437,343 @@
     }
   },
   "info": {
-    "description": "Projected from https://raw.githubusercontent.com/openai/openai-openapi/85a23866c06a29098083ebb11d5ec70438305def/openapi.json; SHA-256 0e4dc3d7f52cc7d7c41940587b5ae23c0e3173bd4b4384f9d673ee90185ebafb.",
-    "title": "Harness-Gateway OpenAI text subset",
-    "version": "0.1.0"
+    "description": "Test your local Codex and Copilot CLIs through the OpenAI-compatible API. Start with model discovery, then send a buffered or streaming completion. No API key is required: authentication stays with the local CLIs.\n\nSystem/developer messages must precede conversation messages; the last message must be from the user. Only text chat is supported. Tools, images, audio, sampling parameters, and structured output are rejected. Requests are limited to 1 MiB and assistant text to 16 MiB.",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0"
+    },
+    "title": "Harness-Gateway",
+    "version": "0.1.2",
+    "x-upstream-sha256": "0e4dc3d7f52cc7d7c41940587b5ae23c0e3173bd4b4384f9d673ee90185ebafb",
+    "x-upstream-source": "https://raw.githubusercontent.com/openai/openai-openapi/85a23866c06a29098083ebb11d5ec70438305def/openapi.json"
   },
   "openapi": "3.0.3",
-  "paths": {}
+  "paths": {
+    "/health": {
+      "get": {
+        "description": "Checks gateway liveness. This does not start a CLI or verify upstream authentication.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "The gateway is running."
+          }
+        },
+        "summary": "Check gateway health",
+        "tags": [
+          "Gateway"
+        ]
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "description": "Send text to a local CLI. Choose an example for codex or copilot; set stream=true for incremental output. Model aliases use CLI defaults. Native model IDs come from GET /v1/models. Requests share the configured concurrency limit with model discovery.",
+        "operationId": "createChatCompletion",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "codex": {
+                  "summary": "codex (buffered)",
+                  "value": {
+                    "messages": [
+                      {
+                        "content": "Be brief",
+                        "role": "system"
+                      },
+                      {
+                        "content": "Say hello",
+                        "role": "user"
+                      }
+                    ],
+                    "model": "codex"
+                  }
+                },
+                "codexStream": {
+                  "summary": "codex (streaming)",
+                  "value": {
+                    "messages": [
+                      {
+                        "content": "Be brief",
+                        "role": "system"
+                      },
+                      {
+                        "content": "Say hello",
+                        "role": "user"
+                      }
+                    ],
+                    "model": "codex",
+                    "stream": true,
+                    "stream_options": {
+                      "include_usage": true
+                    }
+                  }
+                },
+                "copilot": {
+                  "summary": "copilot (buffered)",
+                  "value": {
+                    "messages": [
+                      {
+                        "content": "Be brief",
+                        "role": "system"
+                      },
+                      {
+                        "content": "Say hello",
+                        "role": "user"
+                      }
+                    ],
+                    "model": "copilot"
+                  }
+                },
+                "copilotStream": {
+                  "summary": "copilot (streaming)",
+                  "value": {
+                    "messages": [
+                      {
+                        "content": "Be brief",
+                        "role": "system"
+                      },
+                      {
+                        "content": "Say hello",
+                        "role": "user"
+                      }
+                    ],
+                    "model": "copilot",
+                    "stream": true,
+                    "stream_options": {
+                      "include_usage": true
+                    }
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "choices": [
+                    {
+                      "finish_reason": "stop",
+                      "index": 0,
+                      "message": {
+                        "content": "Hello!",
+                        "role": "assistant"
+                      }
+                    }
+                  ],
+                  "created": 0,
+                  "id": "chatcmpl-example",
+                  "model": "codex",
+                  "object": "chat.completion"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Completion"
+                }
+              },
+              "text/event-stream": {
+                "example": "data: {\"id\":\"chatcmpl-example\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"codex\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello!\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-example\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"codex\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A buffered completion, or an SSE stream when stream=true. Each SSE data field contains a Chunk JSON object, followed by data: [DONE] on success. An error after streaming starts emits an ErrorResponse and closes without [DONE]. Cancel the browser request to stop its CLI operation.",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request identifier also recorded in the gateway log.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unsupported request."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown model or endpoint."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request exceeds 1 MiB."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content-Type must be application/json."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway capacity is full; retry after an active operation finishes."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The local CLI or model discovery failed; check the gateway log."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The gateway is shutting down."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The operation timed out."
+          }
+        },
+        "summary": "Create a chat completion",
+        "tags": [
+          "Chat"
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "listModels",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": [
+                    {
+                      "created": 0,
+                      "id": "codex",
+                      "object": "model",
+                      "owned_by": "codex"
+                    },
+                    {
+                      "created": 0,
+                      "id": "copilot",
+                      "object": "model",
+                      "owned_by": "copilot"
+                    }
+                  ],
+                  "object": "list"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            },
+            "description": "Configured aliases and currently available native model IDs. Discovery uses the local authenticated CLIs."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway capacity is full; retry after an active operation finishes."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The local CLI or model discovery failed; check the gateway log."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The operation timed out."
+          }
+        },
+        "summary": "Discover available models",
+        "tags": [
+          "Models"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "This gateway (current host and port)",
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Gateway"
+    },
+    {
+      "name": "Models"
+    },
+    {
+      "name": "Chat"
+    }
+  ]
 }

@@ -24,6 +24,10 @@ import (
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("HARNESS_GATEWAY_COPILOT_TEST"); mode != "" {
+		if len(os.Args) == 2 && os.Args[1] == "--version" {
+			fmt.Println("GitHub Copilot CLI 0.0.0-fixture.")
+			os.Exit(0)
+		}
 		if err := fixture(mode); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
@@ -250,6 +254,9 @@ func fixture(mode string) error {
 				return err
 			}
 		case "session.delete":
+			if mode == "delete-hold" {
+				continue
+			}
 			if mode == "delete-error" {
 				if err := reject(); err != nil {
 					return err
@@ -419,6 +426,37 @@ func TestCancellationDuringInitialization(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("initialization did not stop after cancellation")
+	}
+}
+
+func TestCancellationDuringSessionDeletionPreservesCause(t *testing.T) {
+	h, log, _ := testHarness(t, "delete-hold")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := h.Complete(ctx, testRequest(), func(string) error { return nil }); done <- err }()
+	for {
+		data, err := os.ReadFile(log)
+		if err == nil && strings.Contains(string(data), "session.delete\n") {
+			break
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("fixture did not start session deletion")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancellation during session cleanup was lost: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session cleanup did not stop after cancellation")
 	}
 }
 

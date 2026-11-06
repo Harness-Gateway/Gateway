@@ -55,7 +55,14 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 		cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if cleanupErr := client.DeleteSession(cleanup, session.SessionID); err == nil && cleanupErr != nil {
-			err = fmt.Errorf("delete copilot session: %w", cleanupErr)
+			// Cancellation can stop the SDK after the check above but while
+			// session deletion is in flight. Preserve the request's cause so
+			// an intentional disconnect is not reported as an inference failure.
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			} else {
+				err = fmt.Errorf("delete copilot session: %w", cleanupErr)
+			}
 		}
 	}()
 	events := make(chan sdk.SessionEvent, 64)

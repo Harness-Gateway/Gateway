@@ -26,7 +26,7 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	}
 	directory := t.TempDir()
 	const module = "github.com/harness-gateway/harness-gateway"
-	const version = "v0.1.1"
+	const version = "v0.1.2"
 	proxy := filepath.Join(directory, "proxy")
 	versions := filepath.Join(proxy, filepath.FromSlash(module), "@v")
 	if err := os.MkdirAll(versions, 0700); err != nil {
@@ -38,7 +38,7 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	}
 	for name, contents := range map[string][]byte{
 		version + ".mod":  mod,
-		version + ".info": []byte(`{"Version":"v0.1.1","Time":"2026-11-06T00:00:00Z"}`),
+		version + ".info": []byte(`{"Version":"v0.1.2","Time":"2026-11-06T00:00:00Z"}`),
 		"list":            []byte(version + "\n"),
 	} {
 		if err := os.WriteFile(filepath.Join(versions, name), contents, 0600); err != nil {
@@ -70,19 +70,26 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 		}
 		return closeErr
 	}
-	// Include only the command, its internal packages, and module/license files.
+	// Include only the command, its packages and embedded assets, and module/license files.
 	// Local credentials, caches, and workspace configuration never enter the zip.
 	for _, name := range []string{"go.mod", "go.sum", "LICENSE", "api/LICENSE.openai"} {
 		if err := add(filepath.Join(root, name)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"cmd/harness-gateway", "internal"} {
+	for _, name := range []string{"cmd/harness-gateway", "internal", "api"} {
 		if err := filepath.WalkDir(filepath.Join(root, name), func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			if entry.Type().IsRegular() && strings.HasSuffix(path, ".go") {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			relative = filepath.ToSlash(relative)
+			docsAsset := strings.HasPrefix(relative, "internal/adapters/inbound/openai/docs/") &&
+				(strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".html") || entry.Name() == "LICENSE.scalar")
+			if entry.Type().IsRegular() && (strings.HasSuffix(path, ".go") || relative == "api/openapi.json" || docsAsset) {
 				return add(path)
 			}
 			return nil
@@ -128,12 +135,12 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("versioned installation failed: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "Harness-Gateway v0.1.1 (module v0.1.1;") {
+	if !strings.Contains(string(output), "Harness-Gateway v0.1.2 (module v0.1.2;") {
 		t.Fatalf("installed binary lost module provenance: %s", output)
 	}
 	output, err = exec.CommandContext(t.Context(), filepath.Join(bin, "harness-gateway"), "-v",
 		"--codex-path", filepath.Join(directory, "missing-codex"), "--copilot-path", filepath.Join(directory, "missing-copilot")).CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "module v0.1.1") {
+	if err != nil || !strings.Contains(string(output), "module v0.1.2") {
 		t.Fatalf("installed command needs a source checkout or harness CLI: %v\n%s", err, output)
 	}
 	if _, err := os.Stat(filepath.Join(directory, ".bashrc")); !os.IsNotExist(err) {

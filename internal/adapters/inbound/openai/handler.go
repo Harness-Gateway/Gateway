@@ -39,6 +39,7 @@ func New(gateway *application.Gateway, timeout time.Duration, logger *slog.Logge
 	}
 	h := &Handler{gateway: gateway, timeout: timeout, logger: logger}
 	mux := http.NewServeMux()
+	registerDocs(mux)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})

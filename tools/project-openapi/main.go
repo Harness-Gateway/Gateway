@@ -1,5 +1,5 @@
 // Command project-openapi projects the MVP wire types from a pinned official
-// OpenAI schema. It uses only the Go standard library and performs no downloads.
+// OpenAI schema. It has no third-party dependencies and performs no downloads.
 package main
 
 import (
@@ -107,11 +107,7 @@ func project(data []byte) ([]byte, error) {
 	properties(schemas["ChunkChoice"])["delta"] = ref("Delta")
 	properties(schemas["ModelList"])["data"].(node)["items"] = ref("Model")
 	properties(schemas["ErrorResponse"])["error"] = ref("APIError")
-	spec := node{
-		"openapi": "3.0.3", "paths": node{},
-		"info":       node{"title": "Harness-Gateway OpenAI text subset", "version": "0.1.0", "description": fmt.Sprintf("Projected from %s; SHA-256 %s.", sourceURL, checksum)},
-		"components": node{"schemas": normalizeSchemas(schemas)},
-	}
+	spec := gatewayDocument(normalizeSchemas(schemas))
 	encoded, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		return nil, err

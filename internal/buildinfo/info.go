@@ -7,9 +7,16 @@ import (
 	"runtime/debug"
 )
 
-const Version = "0.1.1"
+const Version = "0.1.2"
+
+const RepositoryURL = "https://github.com/Harness-Gateway/Harness-Gateway"
 
 func String() string {
+	return fmt.Sprintf("Harness-Gateway v%s (%s; %s/%s)", Version, Revision(), runtime.GOOS, runtime.GOARCH)
+}
+
+// Revision identifies the source checkout or the installed module version.
+func Revision() string {
 	revision := "unknown"
 	modified := false
 	if info, ok := debug.ReadBuildInfo(); ok {
@@ -29,5 +36,5 @@ func String() string {
 	if modified {
 		revision += "+dirty"
 	}
-	return fmt.Sprintf("Harness-Gateway v%s (%s; %s/%s)", Version, revision, runtime.GOOS, runtime.GOARCH)
+	return revision
 }

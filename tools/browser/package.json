@@ -1,0 +1,11 @@
+{
+  "name": "harness-gateway-browser-acceptance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node acceptance.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.65.0"
+  }
+}

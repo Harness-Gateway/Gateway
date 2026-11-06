@@ -17,18 +17,29 @@ type APIError struct {
 
 // ChatMessage defines model for ChatMessage.
 type ChatMessage struct {
+	// Content Plain text or a nonempty array of text parts. Images, audio, tool calls, and extra content-part fields are unsupported.
 	Content json.RawMessage `json:"content"`
 	Role    string          `json:"role"`
 }
 
 // ChatRequest defines model for ChatRequest.
 type ChatRequest struct {
-	Messages        []ChatMessage  `json:"messages"`
-	Model           string         `json:"model"`
-	N               *int           `json:"n"`
-	ReasoningEffort *string        `json:"reasoning_effort,omitempty"`
-	Stream          *bool          `json:"stream"`
-	StreamOptions   *StreamOptions `json:"stream_options,omitempty"`
+	Messages []ChatMessage `json:"messages"`
+
+	// Model Use codex or copilot for the CLI's configured default, or an exact ID from GET /v1/models such as `codex/<native-model-id>`.
+	Model string `json:"model"`
+
+	// N Only one completion is supported; omit this field or use 1.
+	N *int `json:"n"`
+
+	// ReasoningEffort Optional reasoning effort forwarded to the CLI. Supported levels depend on the selected native model; omission preserves its default.
+	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
+
+	// Stream When true, return incremental server-sent events instead of a buffered JSON response.
+	Stream *bool `json:"stream"`
+
+	// StreamOptions Only valid with stream=true.
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 }
 
 // Chunk defines model for Chunk.
@@ -76,6 +87,11 @@ type ErrorResponse struct {
 	Error APIError `json:"error"`
 }
 
+// Health defines model for Health.
+type Health struct {
+	Status string `json:"status"`
+}
+
 // Model defines model for Model.
 type Model struct {
 	Created int64  `json:"created"`
@@ -96,10 +112,16 @@ type ResponseMessage struct {
 	Role    string  `json:"role"`
 }
 
-// StreamOptions defines model for StreamOptions.
+// StreamOptions Only valid with stream=true.
 type StreamOptions struct {
 	IncludeObfuscation *bool `json:"include_obfuscation,omitempty"`
 	IncludeUsage       *bool `json:"include_usage,omitempty"`
+}
+
+// TextPart defines model for TextPart.
+type TextPart struct {
+	Text string `json:"text"`
+	Type string `json:"type"`
 }
 
 // Usage defines model for Usage.
@@ -108,3 +130,6 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 }
+
+// CreateChatCompletionJSONRequestBody defines body for CreateChatCompletion for application/json ContentType.
+type CreateChatCompletionJSONRequestBody = ChatRequest

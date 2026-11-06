@@ -1,3 +1,5 @@
 /gateway
 /harness-gateway
 /examples/spring-ai/target/
+/tools/browser/node_modules/
+/tools/browser/artifacts/
