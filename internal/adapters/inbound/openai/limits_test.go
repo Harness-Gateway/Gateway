@@ -159,13 +159,23 @@ func TestSlowReadersCannotRetainResponseHandlers(t *testing.T) {
 			})
 			gateway := application.New([]application.Backend{{Model: application.Model{ID: "codex"}, Harness: backend}}, 1)
 			h := New(gateway, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				h.ServeHTTP(writeDeadlineRecorder{w, &lastWriteDeadline}, r)
 				if r.Header.Get("X-Test-Slow") == "1" {
 					finishedAt = time.Now()
 					close(finished)
 				}
 			}))
+			// Windows can queue a complete large Write despite a small peer
+			// receive buffer. Bound the sender too, so both modes exercise actual
+			// TCP backpressure rather than depending on platform buffer defaults.
+			server.Config.ConnContext = func(ctx context.Context, conn net.Conn) context.Context {
+				if err := conn.(*net.TCPConn).SetWriteBuffer(4096); err != nil {
+					t.Error(err)
+				}
+				return ctx
+			}
+			server.Start()
 			defer server.Close()
 			connection, err := net.DialTimeout("tcp", server.Listener.Addr().String(), time.Second)
 			if err != nil {
