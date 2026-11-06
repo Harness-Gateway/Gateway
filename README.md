@@ -430,6 +430,9 @@ A separate Windows job installs pinned public Codex/Copilot npm packages and
 tests their real entry points, version output, and protocol handshakes without
 account credentials or inference. This does not qualify authenticated Windows
 inference, which still requires a separate live acceptance run.
+Real-package version diagnostics allow 20 seconds for cold CLI initialization.
+The startup panel keeps its two-second budget and may report `unavailable` for a
+slow cold start; the smoke test also checks that bounded fallback.
 
 To run the installed-package smoke tests locally with existing CLIs:
 

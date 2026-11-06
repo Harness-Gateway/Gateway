@@ -38,6 +38,13 @@ func identifyHarnessVersions(ctx context.Context, harnesses []harnessStatus) []h
 func probeHarnessVersion(parent context.Context, name, executable string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, versionProbeTimeout)
 	defer cancel()
+	return queryHarnessVersion(ctx, name, executable)
+}
+
+// queryHarnessVersion performs the bounded query with the caller's deadline.
+// Startup retains its two-second budget; explicit diagnostics can allow more
+// time for cold runtime initialization without changing gateway startup latency.
+func queryHarnessVersion(ctx context.Context, name, executable string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
