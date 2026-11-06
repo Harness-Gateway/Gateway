@@ -110,6 +110,7 @@ func fixture(mode string) error {
 		return err
 	}
 	var sessionID string
+	var contract map[string]any
 	sequence := 0
 	event := func(data sdk.SessionEventData, agentID *string) error {
 		sequence++
@@ -186,6 +187,20 @@ func fixture(mode string) error {
 				return err
 			}
 		case "session.create":
+			if mode == "contract" {
+				var captured struct {
+					Model, ReasoningEffort string
+					SystemMessage          struct{ Content string }
+				}
+				data, err := json.Marshal(request.Params)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(data, &captured); err != nil {
+					return err
+				}
+				contract = map[string]any{"model": captured.Model, "reasoning_effort": captured.ReasoningEffort, "instructions": captured.SystemMessage.Content}
+			}
 			if mode == "invalid-params" {
 				if err := write(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32602, "message": "private invalid model"}}); err != nil {
 					return err
@@ -302,16 +317,29 @@ func fixture(mode string) error {
 			if err := event(&sdk.AssistantMessageDeltaData{MessageID: "subagent", DeltaContent: "hidden"}, ptr("subagent")); err != nil {
 				return err
 			}
-			if mode != "fallback" {
-				if err := event(&sdk.AssistantMessageDeltaData{MessageID: "fixture-message", DeltaContent: "hello "}, nil); err != nil {
+			response, first, second := "hello world", "hello ", "world"
+			if mode == "contract" {
+				var prompt string
+				if err := json.Unmarshal(request.Params["prompt"], &prompt); err != nil {
 					return err
 				}
-				if err := event(&sdk.AssistantMessageDeltaData{MessageID: "fixture-message", DeltaContent: "world"}, nil); err != nil {
+				contract["input"] = prompt
+				data, err := json.Marshal(contract)
+				if err != nil {
+					return err
+				}
+				response, first, second = string(data), string(data[:1]), string(data[1:])
+			}
+			if mode != "fallback" {
+				if err := event(&sdk.AssistantMessageDeltaData{MessageID: "fixture-message", DeltaContent: first}, nil); err != nil {
+					return err
+				}
+				if err := event(&sdk.AssistantMessageDeltaData{MessageID: "fixture-message", DeltaContent: second}, nil); err != nil {
 					return err
 				}
 			}
 			for i := 0; i < 2; i++ {
-				if err := event(&sdk.AssistantMessageData{MessageID: "fixture-message", Content: "hello world"}, nil); err != nil {
+				if err := event(&sdk.AssistantMessageData{MessageID: "fixture-message", Content: response}, nil); err != nil {
 					return err
 				}
 			}
@@ -323,6 +351,25 @@ func fixture(mode string) error {
 			}
 		case "ping":
 			if err := reply(map[string]any{"ok": true, "protocolVersion": 3}); err != nil {
+				return err
+			}
+		case "session.detach":
+			if mode == "detach-hold" {
+				continue
+			}
+			if mode == "detach-unsupported" {
+				if err := write(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32601, "message": "legacy CLI has no detach method"}}); err != nil {
+					return err
+				}
+				continue
+			}
+			if mode == "detach-error" {
+				if err := reject(); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := reply(map[string]bool{"success": true}); err != nil {
 				return err
 			}
 		case "session.delete":
@@ -338,7 +385,7 @@ func fixture(mode string) error {
 			if err := reply(map[string]bool{"success": true}); err != nil {
 				return err
 			}
-		case "session.options.update", "session.detach":
+		case "session.options.update":
 			if err := reply(map[string]bool{"success": true}); err != nil {
 				return err
 			}
@@ -501,34 +548,38 @@ func TestCancellationDuringInitialization(t *testing.T) {
 	}
 }
 
-func TestCancellationDuringSessionDeletionPreservesCause(t *testing.T) {
-	h, log, _ := testHarness(t, "delete-hold")
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { _, err := h.Complete(ctx, testRequest(), func(string) error { return nil }); done <- err }()
-	for {
-		data, err := os.ReadFile(log)
-		if err == nil && strings.Contains(string(data), "session.delete\n") {
-			break
-		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			t.Fatal(err)
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatal("fixture did not start session deletion")
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
-	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("cancellation during session cleanup was lost: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("session cleanup did not stop after cancellation")
+func TestCancellationDuringSessionCleanupPreservesCause(t *testing.T) {
+	for _, phase := range []string{"detach", "delete"} {
+		t.Run(phase, func(t *testing.T) {
+			h, log, _ := testHarness(t, phase+"-hold")
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { _, err := h.Complete(ctx, testRequest(), func(string) error { return nil }); done <- err }()
+			for {
+				data, err := os.ReadFile(log)
+				if err == nil && strings.Contains(string(data), "session."+phase+"\n") {
+					break
+				}
+				if err != nil && !errors.Is(err, os.ErrNotExist) {
+					t.Fatal(err)
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("fixture did not start session " + phase)
+				case <-time.After(5 * time.Millisecond):
+				}
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancellation during session cleanup was lost: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("session cleanup did not stop after cancellation")
+			}
+		})
 	}
 }
 

@@ -16,6 +16,18 @@ import (
 )
 
 func TestMain(tests *testing.M) {
+	if path := os.Getenv("HARNESS_GATEWAY_SOAK_METRICS"); path != "" {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- observeResources(ctx, path) }()
+		main()
+		cancel()
+		if err := <-done; err != nil {
+			fmt.Fprintln(os.Stderr, "resource sampler:", err)
+			os.Exit(13)
+		}
+		os.Exit(0)
+	}
 	if mode := os.Getenv("HARNESS_GATEWAY_VERSION_TEST"); mode != "" {
 		if len(os.Args) != 2 || os.Args[1] != "--version" {
 			os.Exit(9)

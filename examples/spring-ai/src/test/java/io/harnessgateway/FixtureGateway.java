@@ -9,6 +9,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.boot.json.JsonParserFactory;
 
 /** A real, disposable gateway process using Go CLI fixtures. */
 final class FixtureGateway implements AutoCloseable {
@@ -17,6 +22,10 @@ final class FixtureGateway implements AutoCloseable {
     private final Path turnStarted;
     private final Path catalogStarted;
     private final String url;
+    private final Path directory;
+    private final Path pids;
+    private final Path metrics;
+    private long sampleSequence;
 
     FixtureGateway(String model, String mode) throws Exception {
         this(model, mode, 1);
@@ -27,17 +36,35 @@ final class FixtureGateway implements AutoCloseable {
     }
 
     FixtureGateway(String model, String mode, int concurrency, String logFormat) throws Exception {
-        var directory = Files.createTempDirectory(Path.of(System.getProperty("gateway.failure.directory")), "gateway-");
+        this(model, mode, concurrency, logFormat, false);
+    }
+
+    FixtureGateway(String model, String mode, int concurrency, String logFormat, String... flags) throws Exception {
+        this(model, mode, concurrency, logFormat, false, flags);
+    }
+
+    static FixtureGateway measured(String model) throws Exception {
+        return new FixtureGateway(model, "acceptance", 2, "text", true, "--timeout", "3s");
+    }
+
+    private FixtureGateway(String model, String mode, int concurrency, String logFormat, boolean measured, String... flags) throws Exception {
+        directory = Files.createTempDirectory(Path.of(System.getProperty("gateway.failure.directory")), "gateway-");
         log = directory.resolve("gateway.log");
+        metrics = directory.resolve("resources.json");
+        pids = measured ? Files.createDirectory(directory.resolve("pids"))
+            : Path.of(System.getProperty("gateway.failure.pids"));
         turnStarted = directory.resolve("turn-started");
         catalogStarted = directory.resolve("catalog-started");
-        var builder = new ProcessBuilder(System.getProperty("gateway.failure.executable"),
+        var args = new ArrayList<>(List.of(System.getProperty(measured ? "gateway.soak.executable" : "gateway.failure.executable"),
             "--listen", "127.0.0.1:0", "--harnesses", model,
             "--" + model + "-path", System.getProperty("gateway.failure." + model),
-            "--timeout", "30s", "--concurrency", Integer.toString(concurrency), "--log-format", logFormat);
+            "--timeout", "30s", "--concurrency", Integer.toString(concurrency), "--log-format", logFormat));
+        args.addAll(List.of(flags));
+        var builder = new ProcessBuilder(args);
         var env = builder.environment();
         env.put("HARNESS_GATEWAY_" + model.toUpperCase(java.util.Locale.ROOT) + "_TEST", mode);
-        env.put("HARNESS_GATEWAY_ACCEPTANCE_PIDS", System.getProperty("gateway.failure.pids"));
+        env.put("HARNESS_GATEWAY_ACCEPTANCE_PIDS", pids.toString());
+        if (measured) env.put("HARNESS_GATEWAY_SOAK_METRICS", metrics.toString());
         env.put("HARNESS_GATEWAY_ACCEPTANCE_STARTUP", directory.resolve("startup-once").toString());
         env.put("HARNESS_GATEWAY_ACCEPTANCE_TURN", turnStarted.toString());
         env.put("HARNESS_GATEWAY_ACCEPTANCE_CATALOG", catalogStarted.toString());
@@ -56,6 +83,25 @@ final class FixtureGateway implements AutoCloseable {
     String url() { return url + "/v1"; }
 
     long pid() { return process.pid(); }
+
+    Path directory() { return directory; }
+
+    Path pidsDirectory() { return pids; }
+
+    Map<String, Object> sampleResources() throws Exception {
+        var request = Long.toString(++sampleSequence);
+        Files.writeString(Path.of(metrics + ".request"), request);
+        var parser = JsonParserFactory.getJsonParser();
+        var deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (System.nanoTime() < deadline && process.isAlive()) {
+            if (Files.exists(metrics)) {
+                var snapshot = parser.parseMap(Files.readString(metrics));
+                if (request.equals(snapshot.get("request"))) return snapshot;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("Gateway resource sample did not arrive: " + logs());
+    }
 
     String logs() throws Exception { return Files.readString(log); }
 

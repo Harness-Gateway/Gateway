@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -23,6 +24,7 @@ func main() {
 	models := flag.String("models", "codex,copilot", "comma-separated model IDs for live acceptance")
 	gatewayBinary := flag.String("gateway-binary", "", "existing gateway executable to test instead of building it")
 	outputDirectory := flag.String("output-dir", "", "parent directory for retained per-run diagnostics (default: retain temporary logs only on failure)")
+	soak := flag.Duration("soak", 0, "also run Linux resource soak for this duration per harness (1s to 1h; no inference)")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "acceptance does not accept positional arguments")
@@ -30,7 +32,7 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, *live, *models, *gatewayBinary, *outputDirectory); err != nil {
+	if err := run(ctx, *live, *models, *gatewayBinary, *outputDirectory, *soak); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -47,7 +49,13 @@ func command(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory string) (runErr error) {
+func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory string, soak time.Duration) (runErr error) {
+	if soak < 0 || (soak > 0 && (soak < time.Second || soak > time.Hour)) {
+		return errors.New("soak must be zero (disabled) or between 1s and 1h per harness")
+	}
+	if soak > 0 && runtime.GOOS != "linux" {
+		return errors.New("resource soak requires Linux /proc accounting")
+	}
 	if _, err := os.Stat("examples/spring-ai/pom.xml"); err != nil {
 		return errors.New("run acceptance from the repository root")
 	}
@@ -89,7 +97,7 @@ func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory 
 		return err
 	}
 	err = command(ctx, "mvn", "--batch-mode", "--file", "examples/spring-ai/pom.xml",
-		"-Dtest=GatewayFailureTest,GatewayStressTest", "-Dgateway.failure.url="+failure.url+"/v1",
+		"-Dtest=GatewayFailureTest,GatewayStressTest,GatewayContractTest", "-Dgateway.failure.url="+failure.url+"/v1",
 		"-Dgateway.failure.pids="+pids, "-Dgateway.failure.directory="+logs,
 		"-Dgateway.failure.executable="+gateway,
 		"-Dgateway.failure.codex="+paths["codex"], "-Dgateway.failure.copilot="+paths["copilot"],
@@ -97,6 +105,21 @@ func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory 
 	stopErr := failure.stop()
 	if err := errors.Join(err, stopErr); err != nil {
 		return err
+	}
+	if soak > 0 {
+		observed := filepath.Join(directory, "gateway-observed")
+		if err := command(ctx, "go", "test", "-c", "-o", observed, "./cmd/harness-gateway"); err != nil {
+			return err
+		}
+		if err := command(ctx, "mvn", "--batch-mode", "--file", "examples/spring-ai/pom.xml",
+			"-Dtest=GatewaySoakTest", "-Dgateway.failure.url="+failure.url+"/v1",
+			"-Dgateway.failure.pids="+pids, "-Dgateway.failure.directory="+logs,
+			"-Dgateway.failure.executable="+gateway, "-Dgateway.soak.executable="+observed,
+			fmt.Sprintf("-Dgateway.soak.seconds=%d", (soak+time.Second-1)/time.Second),
+			"-Dgateway.failure.codex="+paths["codex"], "-Dgateway.failure.copilot="+paths["copilot"],
+			"-Dsurefire.reportNameSuffix=soak", "test"); err != nil {
+			return err
+		}
 	}
 	if live {
 		server, err := startGateway(ctx, logs, "live", gateway, os.Environ())

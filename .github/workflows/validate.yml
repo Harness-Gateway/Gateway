@@ -152,7 +152,7 @@ jobs:
       - name: Install the gateway into a private directory
         run: GOBIN="$RUNNER_TEMP/gateway-install" go install ./cmd/harness-gateway
       - name: Run Spring Boot acceptance against the installed gateway
-        run: go run ./tools/acceptance --gateway-binary "$RUNNER_TEMP/gateway-install/harness-gateway" --output-dir examples/spring-ai/target/acceptance-logs
+        run: go run ./tools/acceptance --gateway-binary "$RUNNER_TEMP/gateway-install/harness-gateway" --output-dir examples/spring-ai/target/acceptance-logs --soak=${{ runner.os == 'Linux' && '45s' || '0s' }}
       - name: Save Spring AI reports and gateway diagnostics
         if: always()
         uses: actions/upload-artifact@v7.0.2

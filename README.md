@@ -281,6 +281,9 @@ go run ./tools/acceptance --gateway-binary /absolute/path/to/harness-gateway -li
 # Keep per-run gateway diagnostics even when acceptance succeeds.
 go run ./tools/acceptance --output-dir examples/spring-ai/target/acceptance-logs
 
+# Linux: also run five minutes of fixture soak per harness, without inference.
+go run ./tools/acceptance --soak=5m --output-dir examples/spring-ai/target/acceptance-logs
+
 # Include explicit native model selection alongside the default aliases.
 go run ./tools/acceptance -live -models codex,copilot,codex/gpt-6.1-sol,copilot/gpt-6.1-sol
 ```
@@ -295,6 +298,20 @@ diagnostics in a unique subdirectory of the specified directory, including logs
 from gateways started by the Java tests. It does not stop an existing gateway.
 Surefire reports are kept under `examples/spring-ai/target/surefire-reports/`.
 CI uploads gateway diagnostics and Surefire reports for each Spring AI job.
+
+`GatewayContractTest` exercises the actual Spring AI client against deterministic
+CLI fixtures. It verifies per-request native model overrides and all accepted
+reasoning levels without changing later requests, Unicode and multiline text,
+ordered instructions and conversation roles, completion IDs/finish reasons/token
+usage, final-only SSE output, streaming usage on/off, bounded and isolated chat
+memory with clear/eviction and streaming, validation before CLI startup, client
+timeouts, explicit retry counts, native model discovery, developer messages, and
+multipart text content. Wire features unavailable through Spring AI's chat API
+use Java's HTTP client in the same test project. These fixtures validate gateway
+forwarding; a native model's reasoning support still needs live acceptance.
+Large-payload cases send 256 KiB of UTF-8 prompt text, reject a request exceeding
+the 1 MiB wire limit without starting a CLI, and decode 3 MiB of assistant text
+containing JSON-escaped control characters in both blocking and SSE clients.
 
 To test an already running gateway directly:
 
@@ -338,6 +355,27 @@ streaming success, injected crashes, cancellation, recovery, and ten-client
 overload bursts with a concurrency limit of two. It checks all owned CLI
 processes exit, rejected requests spawn none, and the gateway's `/proc` descriptor
 count stays within a bounded allowance for retained HTTP connections.
+
+`--soak` enables `GatewaySoakTest` on Linux, for 1 second to 1 hour per harness
+(plus warmup). Each round sends 18 requests: blocking/streaming success and
+crashes, a gateway timeout, model discovery, cancellation, a ten-client overload
+burst, and recovery. Every admitted CLI must exit; rejected requests must spawn
+none. Completed PID markers are removed between rounds to bound test bookkeeping
+and avoid PID-reuse false positives. CI runs 45 seconds per harness; use several
+minutes locally for a longer observation window.
+
+The soak uses a separate gateway **test executable** containing the normal server
+and adapters plus file-based runtime sampling. Installed/release executables remain
+covered by the ordinary acceptance phase. The test executable samples retained
+Go heap/objects and goroutines after GC, only when the Java driver requests a
+quiescent sample. Java also records gateway RSS, `/proc` file descriptors, live
+CLI counts, and its own JVM heap usage in a per-gateway `soak.csv`. JVM heap is
+observational; gateway metrics are checked against explicit allowances for HTTP
+pools and runtime caches, with additional early/late plateau checks for runs with
+at least six samples. These are bounded resource-regression checks, not a proof
+that every possible memory leak is absent. The distributed gateway gains no
+metrics/debug endpoint. Logs, CSV samples, and XML reports are retained in CI
+artifacts and when `--output-dir` is supplied locally.
 
 ## Compatibility and limits
 

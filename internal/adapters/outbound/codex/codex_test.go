@@ -76,6 +76,7 @@ func fakeServer(mode string) {
 		}
 	}
 	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 4096), maxProtocolFrameBytes)
 	encoder := json.NewEncoder(os.Stdout)
 	write := func(value any) {
 		if err := encoder.Encode(value); err != nil {
@@ -83,6 +84,7 @@ func fakeServer(mode string) {
 		}
 	}
 	notify := func(method string, params any) { write(map[string]any{"method": method, "params": params}) }
+	var contract map[string]any
 	for scanner.Scan() {
 		var input struct {
 			ID     any            `json:"id"`
@@ -131,8 +133,13 @@ func fakeServer(mode string) {
 			if input.Params["ephemeral"] != true || input.Params["sandbox"] != "read-only" || input.Params["approvalPolicy"] != "never" {
 				os.Exit(5)
 			}
-			if input.Params["developerInstructions"] != "Be brief" {
+			if mode != "contract" && input.Params["developerInstructions"] != "Be brief" {
 				os.Exit(6)
+			}
+			if mode == "contract" {
+				model, _ := input.Params["model"].(string)
+				instructions, _ := input.Params["developerInstructions"].(string)
+				contract = map[string]any{"model": model, "instructions": instructions}
 			}
 			write(map[string]any{"id": input.ID, "result": map[string]any{"thread": map[string]string{"id": "thread-test"}}})
 			if mode == "blocked-stdin" {
@@ -176,6 +183,25 @@ func fakeServer(mode string) {
 				os.Exit(12)
 			}
 		case "turn/start":
+			if mode == "contract" {
+				inputs, _ := input.Params["input"].([]any)
+				if len(inputs) != 1 {
+					os.Exit(34)
+				}
+				text, _ := inputs[0].(map[string]any)
+				effort, _ := input.Params["effort"].(string)
+				contract["input"], contract["reasoning_effort"] = text["text"], effort
+				data, err := json.Marshal(contract)
+				if err != nil {
+					os.Exit(35)
+				}
+				notify("item/agentMessage/delta", map[string]string{"itemId": "contract", "delta": string(data[:1])})
+				notify("item/agentMessage/delta", map[string]string{"itemId": "contract", "delta": string(data[1:])})
+				notify("thread/tokenUsage/updated", map[string]any{"tokenUsage": map[string]any{"total": map[string]int{"inputTokens": 12, "outputTokens": 3, "totalTokens": 15}}})
+				notify("turn/completed", map[string]any{"turn": map[string]string{"status": "completed"}})
+				write(map[string]any{"id": input.ID, "result": map[string]any{}})
+				continue
+			}
 			if mode == "escaped" {
 				notify("item/completed", map[string]any{"item": map[string]string{"id": "escaped-message", "type": "agentMessage", "text": strings.Repeat("\x00", 3*1024*1024)}})
 				notify("turn/completed", map[string]any{"turn": map[string]string{"status": "completed"}})

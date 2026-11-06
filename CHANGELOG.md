@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Expand the local Spring AI contract suite with deterministic request forwarding,
+  model/reasoning overrides, response metadata, memory isolation, client timeouts,
+  retry counts, and validation of unsupported options and wire features.
+- Add opt-in Linux Spring AI soak testing with retained CSV samples for gateway
+  RSS, post-GC heap/objects, goroutines, descriptors, and CLI process cleanup.
+- Retire Copilot SDK session event consumers before deleting completed sessions;
+  bound detach cleanup and preserve compatibility with CLIs lacking that method.
+
 ## v0.1.5 - 2026-11-06
 
 - Accept an existing gateway executable in the Spring AI acceptance runner with `--gateway-binary`; run CI acceptance against a private Go-installed binary.

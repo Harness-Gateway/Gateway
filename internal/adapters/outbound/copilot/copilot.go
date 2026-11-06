@@ -55,6 +55,38 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 		}
 		cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
+		// DeleteSession removes the SDK's registry entry without retiring its
+		// event consumer. Disconnect first so ForceStop cannot lose that owner.
+		// Disconnect uses a background RPC context internally; closing our owned
+		// transport bounds it if a legacy/misbehaving CLI never answers.
+		stopOnDeadline := context.AfterFunc(cleanup, func() { _ = stop() })
+		detachErr := session.Disconnect()
+		if !stopOnDeadline() {
+			// Join a deadline callback already running before inspecting SDK state.
+			_ = stop()
+		}
+		var rpcError *sdk.RPCError
+		unsupported := errors.As(detachErr, &rpcError) && rpcError.Code == -32601
+		if ctx.Err() != nil {
+			if err == nil {
+				err = ctx.Err()
+			}
+			return
+		}
+		if cleanup.Err() != nil {
+			if err == nil {
+				err = fmt.Errorf("detach copilot session: %w", cleanup.Err())
+			}
+			return
+		}
+		if detachErr != nil && !unsupported {
+			if err == nil {
+				err = fmt.Errorf("detach copilot session: %w", detachErr)
+			}
+			return
+		}
+		// Older CLIs may reject detach; the SDK still retires local resources
+		// on that error. Preserve compatibility and delete their on-disk session.
 		if cleanupErr := client.DeleteSession(cleanup, session.SessionID); err == nil && cleanupErr != nil {
 			// Cancellation can stop the SDK after the check above but while
 			// session deletion is in flight. Preserve the request's cause so
