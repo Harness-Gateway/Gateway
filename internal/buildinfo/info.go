@@ -7,7 +7,7 @@ import (
 	"runtime/debug"
 )
 
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 func String() string {
 	revision := "unknown"
