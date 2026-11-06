@@ -160,6 +160,9 @@ func startGateway(ctx context.Context, directory, name, executable string, env [
 		select {
 		case <-p.done:
 			_ = log.Close()
+			if p.err == nil {
+				return nil, errors.New("gateway exited before readiness with status 0")
+			}
 			return nil, fmt.Errorf("gateway exited before readiness: %w", p.err)
 		case <-ready.Done():
 			return nil, errors.Join(fmt.Errorf("gateway readiness: %w", ready.Err()), p.stop())
