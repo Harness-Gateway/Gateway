@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/harness-gateway/harness-gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -325,7 +326,7 @@ func testHarness(t *testing.T, mode string) *Harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Harness{Path: path}
+	return &Harness{Path: testutil.CLIEntryPoint(t, path)}
 }
 
 func testRequest() domain.Request {

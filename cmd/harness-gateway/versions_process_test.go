@@ -19,7 +19,7 @@ func TestVersionProbeStopsDescendants(t *testing.T) {
 			t.Setenv("HARNESS_GATEWAY_VERSION_PIDS", directory)
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			if version, err := probeHarnessVersion(ctx, "codex", os.Args[0]); version != "" || err == nil {
+			if version, err := probeHarnessVersion(ctx, "codex", testutil.CLIEntryPoint(t, os.Args[0])); version != "" || err == nil {
 				t.Fatalf("misbehaving version probe succeeded: %q, %v", version, err)
 			}
 			pids, err := os.ReadDir(directory)

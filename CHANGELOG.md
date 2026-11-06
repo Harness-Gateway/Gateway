@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Support Windows `.cmd`/`.bat` CLI entry points through the shared owned-process launcher, and use Node.js consistently for `.js` entry points and version probes.
+- Exercise Codex/Copilot protocol and lifecycle tests through native Windows batch shims, including paths with spaces, Unicode, and shell metacharacters.
+- Add opt-in real-package version/protocol smoke tests and a credential-free Windows CI job with pinned Codex/Copilot npm packages.
+
 ## v0.1.4 - 2026-11-06
 
 - Stop SSE output after a transport failure without renewing the write deadline for an error frame.

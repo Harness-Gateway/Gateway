@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -54,10 +53,6 @@ func startBridge(ctx context.Context, path, directory string) (*cliBridge, error
 	}
 	b := &cliBridge{listener: listener, token: hex.EncodeToString(secret[:])}
 	cmd := exec.Command(path, "--headless", "--no-auto-update", "--log-level", "error", "--stdio")
-	// Match the SDK's support for legacy JavaScript CLI entry points.
-	if strings.HasSuffix(path, ".js") {
-		cmd = exec.Command("node", append([]string{path}, cmd.Args[1:]...)...)
-	}
 	cmd.Dir = directory
 	cmd.Env = os.Environ()
 	cmd.WaitDelay = processWait

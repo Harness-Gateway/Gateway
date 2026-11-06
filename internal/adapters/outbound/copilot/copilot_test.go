@@ -21,6 +21,7 @@ import (
 	"github.com/harness-gateway/harness-gateway/internal/adapters/inbound/openai"
 	"github.com/harness-gateway/harness-gateway/internal/application"
 	"github.com/harness-gateway/harness-gateway/internal/domain"
+	"github.com/harness-gateway/harness-gateway/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -362,7 +363,7 @@ func testHarness(t *testing.T, mode string) (*Harness, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Harness{Path: path}, log, pid
+	return &Harness{Path: testutil.CLIEntryPoint(t, path)}, log, pid
 }
 
 func testRequest() domain.Request {

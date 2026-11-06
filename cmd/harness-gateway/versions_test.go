@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/harness-gateway/harness-gateway/internal/testutil"
 )
 
 func TestMain(tests *testing.M) {
@@ -95,7 +97,7 @@ func TestVersionProbeSuccessAndFailures(t *testing.T) {
 			t.Setenv("HARNESS_GATEWAY_VERSION_TEST", mode)
 			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 			defer cancel()
-			version, err := probeHarnessVersion(ctx, "codex", os.Args[0])
+			version, err := probeHarnessVersion(ctx, "codex", testutil.CLIEntryPoint(t, os.Args[0]))
 			if mode == "ok" {
 				if version != "1.2.3" || err != nil {
 					t.Fatalf("version=%q, error=%v", version, err)
@@ -120,7 +122,8 @@ func TestVersionQueriesStartTogetherAndPreserveConfiguration(t *testing.T) {
 	t.Setenv("HARNESS_GATEWAY_VERSION_TEST", "hang")
 	directory := t.TempDir()
 	t.Setenv("HARNESS_GATEWAY_VERSION_PIDS", directory)
-	harnesses := []harnessStatus{{name: "codex", executable: os.Args[0], model: "native-one"}, {name: "copilot", executable: os.Args[0]}}
+	path := testutil.CLIEntryPoint(t, os.Args[0])
+	harnesses := []harnessStatus{{name: "codex", executable: path, model: "native-one"}, {name: "copilot", executable: path}}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	result := identifyHarnessVersions(ctx, harnesses)

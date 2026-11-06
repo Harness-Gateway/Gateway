@@ -415,6 +415,31 @@ The SDK's known already-closed TCP writer diagnostic is classified as debug;
 unexpected diagnostics remain visible as errors. Spring AI acceptance checks JSON
 log records through normal, streaming, and failed Copilot requests.
 
+### Windows launcher tests (unreleased)
+
+Source builds support native Windows executables, npm `.cmd`/`.bat` entry points,
+and `.js` entry points using Node.js. Batch wrappers remain inside the gateway's
+Windows Job Object, so cancellation also terminates their native/Node children.
+Prompts and model parameters travel over stdin rather than the shell command line.
+
+Windows CI runs the backend and version-probe suites directly and again through
+both `.cmd` and `.bat` wrappers. The fixtures cover discovery, buffered/SSE HTTP
+responses, failures, cancellation, descendant cleanup, and paths containing spaces,
+Unicode, percent signs, exclamation marks, and other shell metacharacters.
+A separate Windows job installs pinned public Codex/Copilot npm packages and
+tests their real entry points, version output, and protocol handshakes without
+account credentials or inference. This does not qualify authenticated Windows
+inference, which still requires a separate live acceptance run.
+
+To run the installed-package smoke tests locally with existing CLIs:
+
+```bash
+HARNESS_GATEWAY_TEST_INSTALLED_CLIS=1 go test -v -count=1 -run '^TestInstalledCLI' ./cmd/harness-gateway ./internal/adapters/outbound/codex ./internal/adapters/outbound/copilot
+```
+
+Ordinary `go test ./...` skips these real-package tests. The JavaScript launcher
+test uses Node.js when available; it skips when Node.js is absent.
+
 GitHub Actions runs formatting, OpenAPI validation, generated-type reproducibility,
 vet, tests, and builds on Linux, macOS, and Windows using the latest Go 1.27 patch.
 Linux also runs the race detector and pinned `govulncheck` against reachable
