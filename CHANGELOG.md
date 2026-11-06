@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.3 - 2026-11-06
+
+- Redirect the gateway root (`/`) to the interactive API documentation at `/docs`.
+- Return HTTP 413 when trailing whitespace exceeds the 1 MiB request limit,
+  including streamed request bodies.
+- Return OpenAI-style HTTP 405 errors with an `Allow` header for unsupported
+  methods on API endpoints; unknown paths retain HTTP 404 errors.
+- Return HTTP 503 with `gateway_shutting_down` when shutdown interrupts model
+  discovery, and stop the discovery CLI before the gateway exits.
+- Log expected model-discovery capacity rejections and shutdown interruptions
+  at informational level; retain error logs for CLI failures and timeouts.
+
 ## v0.1.2 - 2026-11-06
 
 - Add an embedded Scalar interface at `/docs` for model discovery and buffered

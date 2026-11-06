@@ -63,8 +63,10 @@ try {
   page.on('console', message => {
     if (message.type() === 'error' && !message.text().includes('400 (Bad Request)')) report.errors.push(message.text());
   });
-  await page.goto(`${base}/docs`);
+  await page.goto(`${base}/`);
+  assert.equal(page.url(), `${base}/docs`);
   await page.getByRole('heading', { name: 'Harness-Gateway', exact: true }).waitFor();
+  report.cases.push('gateway root redirects to interactive documentation on the configured port');
   assert.equal(await page.getByRole('button', { name: /Ask AI/ }).count(), 0);
   await page.screenshot({ path: `${artifacts}/docs-desktop.png` });
   report.cases.push('UI renders with bundled assets, no cloud assistant, and off-origin requests blocked');

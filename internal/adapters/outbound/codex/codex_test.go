@@ -88,6 +88,14 @@ func fakeServer(mode string) {
 			if input.Params["includeHidden"] != false {
 				os.Exit(11)
 			}
+			if mode == "catalog-hold" {
+				if path := os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG"); path != "" {
+					if err := os.WriteFile(path, []byte("started"), 0600); err != nil {
+						os.Exit(21)
+					}
+				}
+				continue
+			}
 			if mode == "catalog-error" {
 				write(map[string]any{"id": input.ID, "error": map[string]string{"message": "fixture catalog failure"}})
 				continue

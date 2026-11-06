@@ -13,7 +13,7 @@ session. No provider API key or gateway authentication is needed.
 Use Go 1.25+ and the module package path, without `https://`:
 
 ```bash
-go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.2
+go install github.com/harness-gateway/harness-gateway/cmd/harness-gateway@v0.1.3
 ```
 
 This installs the command **`harness-gateway`** into `GOBIN`, or into
@@ -39,22 +39,22 @@ bash setup.sh
 bash setup.sh --version dev
 
 # Select another module version or destination; avoid editing ~/.bashrc.
-bash setup.sh --version v0.1.2 --bin-dir "$HOME/.local/bin" --no-path
+bash setup.sh --version v0.1.3 --bin-dir "$HOME/.local/bin" --no-path
 ```
 
-Without `--version`, the script selects `v0.1.2`. It requires Go to be installed.
+Without `--version`, the script selects `v0.1.3`. It requires Go to be installed.
 It prints an export command for the current terminal; changing `~/.bashrc`
 affects future Bash sessions. Existing CLI authentication stays managed by Codex
 and Copilot. Install the release without cloning the repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.2/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.3/setup.sh | bash
 ```
 
 To download and inspect the script before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.2/setup.sh -o /tmp/harness-gateway-setup.sh
+curl -fsSL https://raw.githubusercontent.com/Harness-Gateway/harness-gateway/v0.1.3/setup.sh -o /tmp/harness-gateway-setup.sh
 bash /tmp/harness-gateway-setup.sh
 ```
 
@@ -68,7 +68,7 @@ The integration has been exercised with Codex CLI 0.166.0 and Copilot CLI 1.0.10
 harness-gateway
 ```
 
-The release version is **v0.1.2**. See [release notes](CHANGELOG.md). To build a
+The release version is **v0.1.3**. See [release notes](CHANGELOG.md). To build a
 local executable and inspect its version, source revision, and platform:
 
 ```bash
@@ -153,9 +153,12 @@ availability. CLI availability is checked at startup; authentication is exercise
 when a completion runs. The gateway does not retry failed completions.
 
 On SIGINT or SIGTERM, the gateway cancels active CLI operations and waits for
-request cleanup. Interrupted buffered completions return HTTP 503 with code
-`gateway_shutting_down`; established SSE streams emit that error without a
-successful finish chunk or `[DONE]`.
+request cleanup. Interrupted model discovery and buffered completions return HTTP
+503 with code `gateway_shutting_down`; established SSE streams emit that error
+without a successful finish chunk or `[DONE]`.
+
+Model-discovery capacity rejections (HTTP 429) and shutdown interruptions (HTTP
+503) are informational logs; CLI failures and discovery timeouts remain error logs.
 
 ## Startup status and logs
 
@@ -189,7 +192,7 @@ events. `harness-gateway --version` prints its build identity to stdout.
 Open **<http://127.0.0.1:8080/docs>** to explore and test the API with the embedded
 Scalar interface. Use the configured listener's port if you changed it. The
 startup log includes the documentation URL. The OpenAPI document is available
-at **`/openapi.json`**.
+at **`/openapi.json`**. Opening the gateway root (`/`) redirects to `/docs`.
 
 1. Open **Discover available models**, select **Test Request**, and send the
    request to see the CLI aliases and available native model IDs.
@@ -309,6 +312,8 @@ cancellation, and HTTP 429 across harnesses. Additional cases cancel during CLI
 initialization and silent inference, and send SIGTERM during buffered and
 streaming requests (before and after text). Tests check actual child PIDs are
 reaped and a subsequent request succeeds, proving the concurrency slot is released.
+Model-discovery cases verify that overload spawns no extra CLI and SIGTERM returns
+HTTP 503 while stopping the active discovery process.
 
 On Linux, `GatewayStressTest` adds 66 requests per harness, mixing buffered and
 streaming success, injected crashes, cancellation, recovery, and ten-client
@@ -334,6 +339,7 @@ count stays within a bounded allowance for retained HTTP connections.
 | Usage | Optional; covers the harness run, including its own instructions/context |
 | Limits | 1 MiB request; 16 MiB UTF-8 assistant text before JSON/SSE encoding; bounded concurrency and duration |
 | Slow readers | Ten-second socket-write budget for buffered JSON and each SSE write |
+| HTTP validation | Oversized bodies return 413, including trailing whitespace; unsupported methods on API endpoints return 405 with `Allow` |
 | Cancellation | HTTP disconnect/deadline stops the request-owned CLI process |
 | Other request fields | Rejected with HTTP 400 and an OpenAI-style error envelope |
 | Responses, embeddings, images, audio, client tool calls | Unsupported |

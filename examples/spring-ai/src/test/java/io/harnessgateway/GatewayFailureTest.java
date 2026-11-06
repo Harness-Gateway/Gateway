@@ -1,5 +1,9 @@
 package io.harnessgateway;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -154,6 +158,36 @@ class GatewayFailureTest {
     static Stream<Arguments> streamingShutdownCases() {
         return models().flatMap(model -> Stream.of(
             Arguments.of(model, "silent"), Arguments.of(model, "hold")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("models")
+    void modelDiscoveryOverloadAndShutdownStopCli(String model) throws Exception {
+        try (var server = new FixtureGateway(model, "catalog-hold");
+             var http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build()) {
+            var count = pids().size();
+            var request = HttpRequest.newBuilder(URI.create(server.url() + "/models"))
+                .timeout(Duration.ofSeconds(10)).build();
+            var response = http.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            try {
+                awaitNewProcess(count);
+                server.awaitModelDiscoveryStarted();
+                var rejected = http.send(request, HttpResponse.BodyHandlers.ofString());
+                assertEquals(429, rejected.statusCode());
+                assertTrue(rejected.body().contains("\"code\":\"gateway_busy\""), rejected::body);
+                assertEquals(count + 1, pids().size(), "Rejected discovery spawned another CLI");
+                assertFalse(response.isDone(), "Discovery should still be waiting for the CLI");
+                server.terminate();
+                var interrupted = response.get(8, TimeUnit.SECONDS);
+                assertEquals(503, interrupted.statusCode());
+                assertTrue(interrupted.body().contains("\"code\":\"gateway_shutting_down\""), interrupted::body);
+                server.awaitExit();
+                awaitProcessesStopped();
+            }
+            finally {
+                response.cancel(true);
+            }
+        }
     }
 
     @ParameterizedTest

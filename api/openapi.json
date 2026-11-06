@@ -443,7 +443,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "Harness-Gateway",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "x-upstream-sha256": "0e4dc3d7f52cc7d7c41940587b5ae23c0e3173bd4b4384f9d673ee90185ebafb",
     "x-upstream-source": "https://raw.githubusercontent.com/openai/openai-openapi/85a23866c06a29098083ebb11d5ec70438305def/openapi.json"
   },
@@ -466,6 +466,24 @@
               }
             },
             "description": "The gateway is running."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method is not supported for this endpoint.",
+            "headers": {
+              "Allow": {
+                "description": "Supported HTTP methods for this endpoint.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Check gateway health",
@@ -623,6 +641,24 @@
             },
             "description": "Unknown model or endpoint."
           },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method is not supported for this endpoint.",
+            "headers": {
+              "Allow": {
+                "description": "Supported HTTP methods for this endpoint.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "413": {
             "content": {
               "application/json": {
@@ -721,6 +757,24 @@
             },
             "description": "Configured aliases and currently available native model IDs. Discovery uses the local authenticated CLIs."
           },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method is not supported for this endpoint.",
+            "headers": {
+              "Allow": {
+                "description": "Supported HTTP methods for this endpoint.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "429": {
             "content": {
               "application/json": {
@@ -740,6 +794,16 @@
               }
             },
             "description": "The local CLI or model discovery failed; check the gateway log."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The gateway is shutting down."
           },
           "504": {
             "content": {

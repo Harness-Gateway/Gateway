@@ -176,6 +176,14 @@ func fixture(mode string) error {
 				return err
 			}
 		case "models.list":
+			if mode == "catalog-hold" {
+				if path := os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG"); path != "" {
+					if err := os.WriteFile(path, []byte("started"), 0600); err != nil {
+						return err
+					}
+				}
+				continue
+			}
 			if mode == "catalog-error" {
 				if err := reject(); err != nil {
 					return err

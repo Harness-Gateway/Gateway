@@ -40,33 +40,54 @@ func New(gateway *application.Gateway, timeout time.Duration, logger *slog.Logge
 	h := &Handler{gateway: gateway, timeout: timeout, logger: logger}
 	mux := http.NewServeMux()
 	registerDocs(mux)
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	registerAPI(mux, http.MethodGet, "/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("GET /v1/models", h.models)
-	mux.HandleFunc("POST /v1/chat/completions", h.complete)
+	registerAPI(mux, http.MethodGet, "/v1/models", h.models)
+	registerAPI(mux, http.MethodPost, "/v1/chat/completions", h.complete)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Unknown endpoint", "invalid_request_error", "not_found", nil)
 	})
 	return mux
 }
 
+func registerAPI(mux *http.ServeMux, method, path string, handler http.HandlerFunc) {
+	mux.HandleFunc(method+" "+path, handler)
+	allow := method
+	if method == http.MethodGet {
+		allow += ", " + http.MethodHead
+	}
+	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", allow)
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed for this endpoint", "invalid_request_error", "method_not_allowed", nil)
+	})
+}
+
 func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), min(h.timeout, 20*time.Second))
 	defer cancel()
 	models, err := h.gateway.Models(ctx)
+	if contextErr := ctx.Err(); contextErr != nil {
+		err = contextErr
+	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		shuttingDown := errors.Is(context.Cause(ctx), ErrShuttingDown)
+		if errors.Is(err, context.Canceled) && !shuttingDown {
 			return
 		}
-		h.logger.Error("model discovery failed", "error", err)
 		status, code, message := http.StatusBadGateway, "model_discovery_failed", "Local model discovery failed; check the gateway log"
+		level, event := slog.LevelError, "model discovery failed"
 		switch {
+		case shuttingDown:
+			status, code, message = http.StatusServiceUnavailable, "gateway_shutting_down", "Gateway is shutting down; request was interrupted"
+			level, event = slog.LevelInfo, "model discovery interrupted"
 		case errors.Is(err, application.ErrBusy):
 			status, code, message = http.StatusTooManyRequests, "gateway_busy", "Gateway is busy; try again after the active request finishes"
+			level, event = slog.LevelInfo, "model discovery rejected"
 		case errors.Is(err, context.DeadlineExceeded):
 			status = http.StatusGatewayTimeout
 		}
+		h.logger.Log(ctx, level, event, "code", code, "error", err)
 		writeError(w, status, message, "server_error", code, nil)
 		return
 	}
@@ -85,6 +106,10 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if r.ContentLength > maxRequestBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "Request exceeds 1 MiB", "invalid_request_error", "request_too_large", nil)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 	var request ChatRequest
 	decoder := json.NewDecoder(r.Body)
@@ -99,7 +124,12 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, "Expected a single JSON object", "invalid_request_error", "invalid_request", nil)
+		var limit *http.MaxBytesError
+		if errors.As(err, &limit) {
+			writeError(w, http.StatusRequestEntityTooLarge, "Request exceeds 1 MiB", "invalid_request_error", "request_too_large", nil)
+		} else {
+			writeError(w, http.StatusBadRequest, "Expected a single JSON object", "invalid_request_error", "invalid_request", nil)
+		}
 		return
 	}
 	input, field, err := validate(request)

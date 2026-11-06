@@ -15,6 +15,7 @@ final class FixtureGateway implements AutoCloseable {
     private final Process process;
     private final Path log;
     private final Path turnStarted;
+    private final Path catalogStarted;
     private final String url;
 
     FixtureGateway(String model, String mode) throws Exception {
@@ -25,6 +26,7 @@ final class FixtureGateway implements AutoCloseable {
         var directory = Files.createTempDirectory(Path.of(System.getProperty("gateway.failure.directory")), "gateway-");
         log = directory.resolve("gateway.log");
         turnStarted = directory.resolve("turn-started");
+        catalogStarted = directory.resolve("catalog-started");
         var builder = new ProcessBuilder(System.getProperty("gateway.failure.executable"),
             "--listen", "127.0.0.1:0", "--harnesses", model,
             "--" + model + "-path", System.getProperty("gateway.failure." + model),
@@ -34,6 +36,7 @@ final class FixtureGateway implements AutoCloseable {
         env.put("HARNESS_GATEWAY_ACCEPTANCE_PIDS", System.getProperty("gateway.failure.pids"));
         env.put("HARNESS_GATEWAY_ACCEPTANCE_STARTUP", directory.resolve("startup-once").toString());
         env.put("HARNESS_GATEWAY_ACCEPTANCE_TURN", turnStarted.toString());
+        env.put("HARNESS_GATEWAY_ACCEPTANCE_CATALOG", catalogStarted.toString());
         env.put("HARNESS_GATEWAY_COPILOT_LOG", directory.resolve("copilot-methods").toString());
         env.put("HARNESS_GATEWAY_COPILOT_PID", directory.resolve("copilot-pid").toString());
         process = builder.redirectErrorStream(true).redirectOutput(log.toFile()).start();
@@ -53,14 +56,22 @@ final class FixtureGateway implements AutoCloseable {
     void terminate() { process.destroy(); } // SIGTERM on the supported Unix hosts.
 
     void awaitTurnStarted() throws Exception {
+        awaitMarker(turnStarted, "the inference request");
+    }
+
+    void awaitModelDiscoveryStarted() throws Exception {
+        awaitMarker(catalogStarted, "model discovery");
+    }
+
+    private void awaitMarker(Path marker, String operation) throws Exception {
         var deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
         while (System.nanoTime() < deadline && process.isAlive()) {
-            if (Files.exists(turnStarted)) {
+            if (Files.exists(marker)) {
                 return;
             }
             Thread.sleep(20);
         }
-        throw new AssertionError("CLI did not accept the inference request: " + Files.readString(log));
+        throw new AssertionError("CLI did not accept " + operation + ": " + Files.readString(log));
     }
 
     void awaitExit() throws Exception {

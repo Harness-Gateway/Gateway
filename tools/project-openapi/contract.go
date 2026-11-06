@@ -50,7 +50,7 @@ func gatewayDocument(schemas node) node {
 			examples[name] = node{"summary": summary, "value": body}
 		}
 	}
-	chatResponses := errorResponses("400", "404", "413", "415", "429", "502", "503", "504")
+	chatResponses := errorResponses("400", "404", "405", "413", "415", "429", "502", "503", "504")
 	chatResponses["200"] = node{
 		"description": "A buffered completion, or an SSE stream when stream=true. Each SSE data field contains a Chunk JSON object, followed by data: [DONE] on success. An error after streaming starts emits an ErrorResponse and closes without [DONE]. Cancel the browser request to stop its CLI operation.",
 		"headers":     node{"X-Request-ID": node{"description": "Request identifier also recorded in the gateway log.", "schema": node{"type": "string"}}},
@@ -62,11 +62,13 @@ func gatewayDocument(schemas node) node {
 			"text/event-stream": node{"schema": node{"type": "string"}, "example": sseExample},
 		},
 	}
-	modelResponses := errorResponses("429", "502", "504")
+	modelResponses := errorResponses("405", "429", "502", "503", "504")
 	modelResponses["200"] = node{"description": "Configured aliases and currently available native model IDs. Discovery uses the local authenticated CLIs.", "content": node{"application/json": node{"schema": ref("ModelList"), "example": node{"object": "list", "data": []any{
 		node{"id": "codex", "object": "model", "owned_by": "codex", "created": 0},
 		node{"id": "copilot", "object": "model", "owned_by": "copilot", "created": 0},
 	}}}}}
+	healthResponses := errorResponses("405")
+	healthResponses["200"] = node{"description": "The gateway is running.", "content": node{"application/json": node{"schema": ref("Health"), "example": node{"status": "ok"}}}}
 	return node{
 		"openapi": "3.0.3",
 		"info": node{
@@ -81,7 +83,7 @@ func gatewayDocument(schemas node) node {
 			"/health": node{"get": node{
 				"operationId": "getHealth", "summary": "Check gateway health", "tags": []any{"Gateway"},
 				"description": "Checks gateway liveness. This does not start a CLI or verify upstream authentication.",
-				"responses":   node{"200": node{"description": "The gateway is running.", "content": node{"application/json": node{"schema": ref("Health"), "example": node{"status": "ok"}}}}},
+				"responses":   healthResponses,
 			}},
 			"/v1/models": node{"get": node{"operationId": "listModels", "summary": "Discover available models", "tags": []any{"Models"}, "responses": modelResponses}},
 			"/v1/chat/completions": node{"post": node{
@@ -97,13 +99,16 @@ func gatewayDocument(schemas node) node {
 
 func errorResponses(codes ...string) node {
 	descriptions := map[string]string{
-		"400": "Invalid or unsupported request.", "404": "Unknown model or endpoint.", "413": "Request exceeds 1 MiB.",
+		"400": "Invalid or unsupported request.", "404": "Unknown model or endpoint.", "405": "HTTP method is not supported for this endpoint.", "413": "Request exceeds 1 MiB.",
 		"415": "Content-Type must be application/json.", "429": "Gateway capacity is full; retry after an active operation finishes.",
 		"502": "The local CLI or model discovery failed; check the gateway log.", "503": "The gateway is shutting down.", "504": "The operation timed out.",
 	}
 	responses := node{}
 	for _, code := range codes {
 		responses[code] = node{"description": descriptions[code], "content": node{"application/json": node{"schema": ref("ErrorResponse")}}}
+		if code == "405" {
+			responses[code].(node)["headers"] = node{"Allow": node{"description": "Supported HTTP methods for this endpoint.", "schema": node{"type": "string"}}}
+		}
 	}
 	return responses
 }

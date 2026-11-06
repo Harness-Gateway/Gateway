@@ -19,6 +19,34 @@ import (
 	"github.com/harness-gateway/harness-gateway/internal/domain"
 )
 
+func TestRootRedirectsToDocumentation(t *testing.T) {
+	h := handler(harnessFunc(func(context.Context, domain.Request, func(string) error) (domain.Result, error) {
+		t.Fatal("root redirect started a harness")
+		return domain.Result{}, nil
+	}), time.Second)
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest(method, "http://127.0.0.1:49123/", nil))
+			if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != "/docs" {
+				t.Fatalf("root should redirect on the same host and port: %d %v", w.Code, w.Header())
+			}
+			if method == http.MethodHead && w.Body.Len() != 0 {
+				t.Fatal("HEAD redirect returned a body")
+			}
+		})
+	}
+	for _, test := range []struct{ method, path string }{
+		{http.MethodGet, "/unknown"}, {http.MethodGet, "/v1/unknown"}, {http.MethodPost, "/"},
+	} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(test.method, test.path, nil))
+		if w.Code != http.StatusNotFound || w.Header().Get("Location") != "" || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
+			t.Fatalf("%s %s should retain the API error: %d %s", test.method, test.path, w.Code, w.Body.String())
+		}
+	}
+}
+
 func TestDocumentationRoutes(t *testing.T) {
 	h := handler(harnessFunc(func(context.Context, domain.Request, func(string) error) (domain.Result, error) {
 		t.Fatal("documentation started a harness")

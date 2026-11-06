@@ -26,7 +26,7 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	}
 	directory := t.TempDir()
 	const module = "github.com/harness-gateway/harness-gateway"
-	const version = "v0.1.2"
+	const version = "v0.1.3"
 	proxy := filepath.Join(directory, "proxy")
 	versions := filepath.Join(proxy, filepath.FromSlash(module), "@v")
 	if err := os.MkdirAll(versions, 0700); err != nil {
@@ -38,7 +38,7 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	}
 	for name, contents := range map[string][]byte{
 		version + ".mod":  mod,
-		version + ".info": []byte(`{"Version":"v0.1.2","Time":"2026-11-06T00:00:00Z"}`),
+		version + ".info": []byte(`{"Version":"v0.1.3","Time":"2026-11-06T00:00:00Z"}`),
 		"list":            []byte(version + "\n"),
 	} {
 		if err := os.WriteFile(filepath.Join(versions, name), contents, 0600); err != nil {
@@ -135,12 +135,12 @@ func TestVersionedGoInstallOutsideCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("versioned installation failed: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "Harness-Gateway v0.1.2 (module v0.1.2;") {
+	if !strings.Contains(string(output), "Harness-Gateway v0.1.3 (module v0.1.3;") {
 		t.Fatalf("installed binary lost module provenance: %s", output)
 	}
 	output, err = exec.CommandContext(t.Context(), filepath.Join(bin, "harness-gateway"), "-v",
 		"--codex-path", filepath.Join(directory, "missing-codex"), "--copilot-path", filepath.Join(directory, "missing-copilot")).CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "module v0.1.2") {
+	if err != nil || !strings.Contains(string(output), "module v0.1.3") {
 		t.Fatalf("installed command needs a source checkout or harness CLI: %v\n%s", err, output)
 	}
 	if _, err := os.Stat(filepath.Join(directory, ".bashrc")); !os.IsNotExist(err) {

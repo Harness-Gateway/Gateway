@@ -22,6 +22,12 @@ var scalarJS []byte
 var scalarLicense []byte
 
 func registerDocs(mux *http.ServeMux) {
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		if err := setWriteDeadline(w); err != nil {
+			return
+		}
+		http.Redirect(w, r, "/docs", http.StatusTemporaryRedirect)
+	})
 	for path, asset := range map[string]struct {
 		body        []byte
 		contentType string
