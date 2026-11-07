@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.7 - 2026-11-07
 
 - Add concurrent HTTP model-discovery shutdown regressions and real-time catalog
   expiry, failed-refresh, and concurrent-recovery checks for both harnesses.
