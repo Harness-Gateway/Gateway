@@ -22,6 +22,7 @@ import (
 func main() {
 	live := flag.Bool("live", false, "also run authenticated Codex/Copilot inference (uses account allowance)")
 	models := flag.String("models", "codex,copilot", "comma-separated model IDs for live acceptance")
+	nativeModels := flag.String("native-models", "", "explicit native IDs for live override checks (default: one discovered model per harness)")
 	gatewayBinary := flag.String("gateway-binary", "", "existing gateway executable to test instead of building it")
 	outputDirectory := flag.String("output-dir", "", "parent directory for retained per-run diagnostics (default: retain temporary logs only on failure)")
 	soak := flag.Duration("soak", 0, "also run Linux resource soak for this duration per harness (1s to 1h; no inference)")
@@ -32,7 +33,7 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, *live, *models, *gatewayBinary, *outputDirectory, *soak); err != nil {
+	if err := run(ctx, *live, *models, *nativeModels, *gatewayBinary, *outputDirectory, *soak); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -49,7 +50,10 @@ func command(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory string, soak time.Duration) (runErr error) {
+func run(ctx context.Context, live bool, models, nativeModels, gatewayBinary, outputDirectory string, soak time.Duration) (runErr error) {
+	if !live && nativeModels != "" {
+		return errors.New("--native-models requires --live")
+	}
 	if soak < 0 || (soak > 0 && (soak < time.Second || soak > time.Hour)) {
 		return errors.New("soak must be zero (disabled) or between 1s and 1h per harness")
 	}
@@ -97,7 +101,7 @@ func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory 
 		return err
 	}
 	err = command(ctx, "mvn", "--batch-mode", "--file", "examples/spring-ai/pom.xml",
-		"-Dtest=GatewayFailureTest,GatewayStressTest,GatewayContractTest", "-Dgateway.failure.url="+failure.url+"/v1",
+		"-Dtest=GatewayFailureTest,GatewayStressTest,GatewayContractTest,NativeModelsTest", "-Dgateway.failure.url="+failure.url+"/v1",
 		"-Dgateway.failure.pids="+pids, "-Dgateway.failure.directory="+logs,
 		"-Dgateway.failure.executable="+gateway,
 		"-Dgateway.failure.codex="+paths["codex"], "-Dgateway.failure.copilot="+paths["copilot"],
@@ -128,6 +132,7 @@ func run(ctx context.Context, live bool, models, gatewayBinary, outputDirectory 
 		}
 		err = command(ctx, "mvn", "--batch-mode", "--file", "examples/spring-ai/pom.xml",
 			"-Dtest=GatewayTest", "-Dgateway.url="+server.url+"/v1", "-Dgateway.models="+models,
+			"-Dgateway.native-models="+nativeModels,
 			"-Dsurefire.reportNameSuffix=live", "test")
 		if err := errors.Join(err, server.stop()); err != nil {
 			return err

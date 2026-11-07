@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add public Go/Bash release verification with checksum and tag provenance,
+  identical-binary checks, fixture HTTP smoke tests, and a Linux/macOS release
+  workflow that also runs Spring AI acceptance against the installed artifact.
+- Extend live Spring AI acceptance with blocking and streaming requests using
+  discovered native model IDs, explicit selection, and response-model assertions.
+
 ## v0.1.7 - 2026-11-07
 
 - Add concurrent HTTP model-discovery shutdown regressions and real-time catalog

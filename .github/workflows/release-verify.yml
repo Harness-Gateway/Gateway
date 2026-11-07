@@ -1,0 +1,89 @@
+name: Verify public release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published stable tag to verify (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-release-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  public-install:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ github.event.release.tag_name || inputs.version }}
+      RELEASE_TITLE: ${{ github.event.release.name }}
+    steps:
+      - name: Validate release identity
+        shell: bash
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo 'Provide a stable vMAJOR.MINOR.PATCH tag.' >&2; exit 1;
+          }
+          if [[ "$GITHUB_EVENT_NAME" == release && "$RELEASE_TITLE" != "$RELEASE_VERSION" ]]; then
+            echo 'The release title must equal its version tag.' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve the published tag commit independently of the Go proxy
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+          path: release-source
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.27.x'
+          check-latest: true
+      - uses: actions/setup-java@v6.2.0
+        with:
+          distribution: temurin
+          java-version: '27'
+          cache: maven
+          cache-dependency-path: examples/spring-ai/pom.xml
+      - name: Verify fresh public Go and Bash installs and HTTP behavior
+        shell: bash
+        run: |
+          go run ./tools/releaseverify --version "$RELEASE_VERSION" \
+            --revision "$(git -C release-source rev-parse HEAD)" \
+            --output-dir "$RUNNER_TEMP/release-verification" \
+            > "$RUNNER_TEMP/public-release.json" 2> "$RUNNER_TEMP/public-release.log"
+          cat "$RUNNER_TEMP/public-release.json"
+      - name: Run Spring AI fixtures against the public-installed executable
+        shell: bash
+        run: |
+          binary=$(jq -er '.go_binary' "$RUNNER_TEMP/public-release.json")
+          go run ./tools/acceptance --gateway-binary "$binary" \
+            --output-dir examples/spring-ai/target/public-release-logs
+      - name: Retain release identity and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: public-release-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/public-release.json
+            ${{ runner.temp }}/public-release.log
+            ${{ runner.temp }}/release-verification/**/*.json
+            ${{ runner.temp }}/release-verification/**/*.log
+            examples/spring-ai/target/public-release-logs/
+            examples/spring-ai/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 14

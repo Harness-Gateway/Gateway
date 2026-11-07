@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.ai.chat.client.ChatClient;
@@ -46,7 +47,52 @@ class GatewayTest {
     }
 
     static Stream<String> models() {
-        return Arrays.stream(System.getProperty("gateway.models", "codex,copilot").split(","));
+        return Arrays.stream(System.getProperty("gateway.models", "codex,copilot").split(",")).map(String::trim);
+    }
+
+    static Stream<Arguments> nativeModels() throws Exception {
+        var url = System.getProperty("gateway.url", "http://127.0.0.1:8080/v1") + "/models";
+        try (var http = HttpClient.newHttpClient()) {
+            var response = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(25)).build(),
+                HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), response::body);
+            var catalog = JsonParserFactory.getJsonParser().parseMap(response.body());
+            var ids = ((List<?>) catalog.get("data")).stream()
+                .map(entry -> (String) ((java.util.Map<?, ?>) entry).get("id")).toList();
+            var selected = NativeModels.select(models().toList(), ids, System.getProperty("gateway.native-models", ""));
+            System.out.println("Live concrete native model selection: " + selected);
+            return selected.entrySet().stream().map(entry -> Arguments.of(entry.getKey(), entry.getValue()));
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("nativeModels")
+    void explicitNativeModelOverridesAliasForBlockingRequests(String alias, String nativeModel) {
+        try (var context = application(alias)) {
+            var response = client(context).prompt().options(OpenAiChatOptions.builder().model(nativeModel))
+                .system("Follow the requested output format exactly. Do not use tools.")
+                .user("Reply with only GATEWAY_NATIVE_OK").call().chatResponse();
+            assertNotNull(response);
+            assertEquals(nativeModel, response.getMetadata().getModel());
+            assertEquals("GATEWAY_NATIVE_OK", response.getResult().getOutput().getText().trim());
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("nativeModels")
+    void explicitNativeModelOverridesAliasForStreamingRequests(String alias, String nativeModel) {
+        try (var context = application(alias)) {
+            var responses = client(context).prompt().options(OpenAiChatOptions.builder().model(nativeModel))
+                .system("Follow the requested output format exactly. Do not use tools.")
+                .user("Reply with only GATEWAY_NATIVE_OK").stream().chatResponse().collectList().block(Duration.ofMinutes(3));
+            assertNotNull(responses);
+            assertFalse(responses.isEmpty());
+            assertTrue(responses.stream().allMatch(response -> nativeModel.equals(response.getMetadata().getModel())));
+            var content = responses.stream().filter(response -> response.getResult() != null)
+                .map(response -> response.getResult().getOutput().getText()).filter(java.util.Objects::nonNull)
+                .reduce("", String::concat);
+            assertEquals("GATEWAY_NATIVE_OK", content.trim());
+        }
     }
 
     private ConfigurableApplicationContext application(String alias) {

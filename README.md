@@ -282,6 +282,9 @@ go run ./tools/acceptance
 # Also test real inference using the authenticated local CLIs.
 go run ./tools/acceptance -live
 
+# Select discovered native IDs for the additional blocking/streaming override checks.
+go run ./tools/acceptance -live --native-models codex/YOUR_CODEX_MODEL,copilot/YOUR_COPILOT_MODEL
+
 # Test a specific installed/prebuilt gateway without rebuilding it.
 go run ./tools/acceptance --gateway-binary /absolute/path/to/harness-gateway
 go run ./tools/acceptance --gateway-binary /absolute/path/to/harness-gateway -live
@@ -344,6 +347,15 @@ requests, high reasoning effort, and HTTP 400 propagation for unsupported option
 The reasoning test requires a model that supports `high`; choose compatible
 CLI defaults or explicit native IDs when running it. These tests use the CLIs'
 authenticated upstream inference and may consume the account's usage allowance.
+Live acceptance also tests a namespaced native model for each selected harness
+through blocking and streaming requests, overriding the configured alias in the
+same Spring AI client and checking response model metadata and text. By default,
+it uses a concrete native ID already present in `--models`, otherwise the alphabetically
+first concrete ID in that harness's catalog; `auto` routing entries are excluded.
+Use `--native-models` to select models
+known to be available to your account. Missing catalog IDs and invalid overrides
+fail explicitly; the tests do not silently skip or try other models. These native
+checks omit reasoning effort so they do not require a reasoning-capable model.
 Native CLIs may return text in a single final chunk. Controlled fixture tests
 verify incremental delivery before completion; live tests validate the complete
 streamed content and usage without requiring a particular number of text chunks.
@@ -392,6 +404,37 @@ bounded resource-regression checks, not a proof
 that every possible memory leak is absent. The distributed gateway gains no
 metrics/debug endpoint. Logs, CSV samples, and XML reports are retained in CI
 artifacts and when `--output-dir` is supplied locally.
+
+## Public release verification
+
+After publishing a stable tag, run the repository-owned verifier from the root:
+
+```bash
+go run ./tools/releaseverify --version v0.1.7 --revision "$(git rev-parse 'v0.1.7^{commit}')"
+```
+
+It installs through the public Go proxy and checksum database with a private
+module cache, checks the expected tag commit, compares the tagged Bash script
+with the checksum-verified module, and exercises that script's default version.
+Go and Bash installations must have matching module/version identities and
+identical executable bytes. Both executables run HTTP smoke tests against Go CLI
+fixtures, including bundled docs, model discovery, origin protection, validation,
+and blocking/streaming alias and native model requests. No CLI installation,
+authentication, provider key, or upstream inference is required.
+
+Install commands run outside the checkout and leave the user's binaries and Bash
+configuration alone. The private download cache is cleaned on completion. Binaries,
+gateway logs and a `verification.json` receipt are retained in a unique directory
+printed on stderr; stdout contains the JSON receipt. Use `--output-dir` to choose
+its parent. Go 1.27.3+ and Bash are required; this verifier targets Linux/macOS.
+
+The **Verify public release** workflow runs this check on Linux and macOS after
+publication, then runs the Spring AI fixture suite against the public-installed
+binary. It can also be dispatched manually for an existing stable tag. Java 27
+and Maven are required for that Spring AI step. Reports and diagnostics are retained
+as workflow artifacts. Release titles use only the version tag, such as `v0.1.7`.
+This post-publication workflow supplements pre-release Validate CI; it cannot
+prevent publication of a bad tag and never moves or rewrites a tag.
 
 ## Compatibility and limits
 

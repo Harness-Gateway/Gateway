@@ -24,9 +24,15 @@ func TestMain(m *testing.M) {
 
 func TestInvalidSoakDurationFailsBeforeBuilding(t *testing.T) {
 	for _, duration := range []time.Duration{-time.Second, time.Millisecond, time.Hour + time.Second} {
-		if err := run(t.Context(), false, "codex,copilot", "", "", duration); err == nil || !strings.Contains(err.Error(), "soak must") {
+		if err := run(t.Context(), false, "codex,copilot", "", "", "", duration); err == nil || !strings.Contains(err.Error(), "soak must") {
 			t.Fatalf("invalid soak duration %s did not fail immediately: %v", duration, err)
 		}
+	}
+}
+
+func TestNativeSelectionRequiresLiveAcceptance(t *testing.T) {
+	if err := run(t.Context(), false, "codex", "codex/native-one", "", "", 0); err == nil || !strings.Contains(err.Error(), "requires --live") {
+		t.Fatalf("native selection silently ignored outside live acceptance: %v", err)
 	}
 }
 
