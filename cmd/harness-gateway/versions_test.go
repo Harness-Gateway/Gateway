@@ -29,7 +29,8 @@ func TestMain(tests *testing.M) {
 		os.Exit(0)
 	}
 	if mode := os.Getenv("HARNESS_GATEWAY_VERSION_TEST"); mode != "" {
-		if len(os.Args) != 2 || os.Args[1] != "--version" {
+		bundled := len(os.Args) == 3 && os.Args[1] == "--no-auto-update" && os.Args[2] == "--version"
+		if !bundled && (len(os.Args) != 2 || os.Args[1] != "--version") {
 			os.Exit(9)
 		}
 		if directory := os.Getenv("HARNESS_GATEWAY_VERSION_PIDS"); directory != "" {
@@ -39,6 +40,12 @@ func TestMain(tests *testing.M) {
 			}
 		}
 		switch mode {
+		case "copilot-cache":
+			if bundled {
+				fmt.Println("GitHub Copilot CLI 1.0.105.")
+			} else {
+				fmt.Println("GitHub Copilot CLI 1.0.107.")
+			}
 		case "ok":
 			fmt.Println("codex-cli 1.2.3")
 		case "bare":
@@ -99,6 +106,17 @@ func TestParseInstalledHarnessVersions(t *testing.T) {
 	}
 	if _, err := parseHarnessVersion("codex", "Warning: Node.js 26.5.0\n"); err == nil {
 		t.Fatal("reported an unrelated runtime version as the harness version")
+	}
+}
+
+func TestCopilotVersionMatchesBundledRuntime(t *testing.T) {
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
+	t.Setenv("HARNESS_GATEWAY_VERSION_TEST", "copilot-cache")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	version, err := queryHarnessVersion(ctx, "copilot", testutil.CLIEntryPoint(t, os.Args[0]))
+	if err != nil || version != "1.0.105" {
+		t.Fatalf("version probe selected an auto-updated runtime instead of the bundled CLI: %q %v", version, err)
 	}
 }
 

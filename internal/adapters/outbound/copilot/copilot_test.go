@@ -26,7 +26,7 @@ import (
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("HARNESS_GATEWAY_COPILOT_TEST"); mode != "" {
-		if len(os.Args) == 2 && os.Args[1] == "--version" {
+		if len(os.Args) == 3 && os.Args[1] == "--no-auto-update" && os.Args[2] == "--version" {
 			fmt.Println("GitHub Copilot CLI 0.0.0-fixture.")
 			os.Exit(0)
 		}
@@ -225,17 +225,38 @@ func fixture(mode string) error {
 					return fmt.Errorf("wrong native model: %q", model)
 				}
 			}
+			if err := json.Unmarshal(request.Params["sessionId"], &sessionID); err != nil {
+				return err
+			}
+			if record := os.Getenv("HARNESS_GATEWAY_COPILOT_STATE_RECORD"); record != "" {
+				directory := os.Getenv("HARNESS_GATEWAY_COPILOT_PROFILE")
+				if raw := request.Params["configDir"]; len(raw) != 0 {
+					if err := json.Unmarshal(raw, &directory); err != nil {
+						return err
+					}
+				}
+				state := filepath.Join(directory, "session-state", sessionID)
+				if err := os.MkdirAll(state, 0700); err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(state, "events.jsonl"), []byte("fixture conversation"), 0600); err != nil {
+					return err
+				}
+				if err := os.WriteFile(record, []byte(directory), 0600); err != nil {
+					return err
+				}
+			}
 			if mode == "create-error" {
 				if err := reject(); err != nil {
 					return err
 				}
 				continue
 			}
-			if err := json.Unmarshal(request.Params["sessionId"], &sessionID); err != nil {
-				return err
-			}
 			if string(request.Params["streaming"]) != "true" || string(request.Params["availableTools"]) != "[]" {
 				return errors.New("missing streaming or empty tool allowlist")
+			}
+			if string(request.Params["enableSessionStore"]) != "false" {
+				return errors.New("shared session store must be disabled")
 			}
 			if err := reply(map[string]any{"sessionId": sessionID, "workspacePath": nil}); err != nil {
 				return err
@@ -373,18 +394,7 @@ func fixture(mode string) error {
 				return err
 			}
 		case "session.delete":
-			if mode == "delete-hold" {
-				continue
-			}
-			if mode == "delete-error" {
-				if err := reject(); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := reply(map[string]bool{"success": true}); err != nil {
-				return err
-			}
+			return errors.New("session.delete must not access the default CLI profile")
 		case "session.options.update":
 			if err := reply(map[string]bool{"success": true}); err != nil {
 				return err
@@ -438,8 +448,8 @@ func TestCompletionAndCleanup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(methods), "session.delete\n") {
-				t.Fatalf("session not deleted: %s", methods)
+			if !strings.Contains(string(methods), "session.detach\n") || strings.Contains(string(methods), "session.delete\n") {
+				t.Fatalf("session must detach without deleting from the default profile: %s", methods)
 			}
 		})
 	}
@@ -485,7 +495,7 @@ func TestCrashHTTPResponse(t *testing.T) {
 }
 
 func TestFailures(t *testing.T) {
-	for _, tc := range []struct{ mode, want string }{{"startup-crash", "start copilot"}, {"create-error", "create copilot session"}, {"send-error", "send copilot request"}, {"session-error", "fixture query failed"}, {"delete-error", "delete copilot session"}} {
+	for _, tc := range []struct{ mode, want string }{{"startup-crash", "start copilot"}, {"create-error", "create copilot session"}, {"send-error", "send copilot request"}, {"session-error", "fixture query failed"}} {
 		t.Run(tc.mode, func(t *testing.T) {
 			h, _, _ := testHarness(t, tc.mode)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -549,37 +559,33 @@ func TestCancellationDuringInitialization(t *testing.T) {
 }
 
 func TestCancellationDuringSessionCleanupPreservesCause(t *testing.T) {
-	for _, phase := range []string{"detach", "delete"} {
-		t.Run(phase, func(t *testing.T) {
-			h, log, _ := testHarness(t, phase+"-hold")
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-			done := make(chan error, 1)
-			go func() { _, err := h.Complete(ctx, testRequest(), func(string) error { return nil }); done <- err }()
-			for {
-				data, err := os.ReadFile(log)
-				if err == nil && strings.Contains(string(data), "session."+phase+"\n") {
-					break
-				}
-				if err != nil && !errors.Is(err, os.ErrNotExist) {
-					t.Fatal(err)
-				}
-				select {
-				case <-ctx.Done():
-					t.Fatal("fixture did not start session " + phase)
-				case <-time.After(5 * time.Millisecond):
-				}
-			}
-			cancel()
-			select {
-			case err := <-done:
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("cancellation during session cleanup was lost: %v", err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("session cleanup did not stop after cancellation")
-			}
-		})
+	h, log, _ := testHarness(t, "detach-hold")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := h.Complete(ctx, testRequest(), func(string) error { return nil }); done <- err }()
+	for {
+		data, err := os.ReadFile(log)
+		if err == nil && strings.Contains(string(data), "session.detach\n") {
+			break
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("fixture did not start session detach")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancellation during session cleanup was lost: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session cleanup did not stop after cancellation")
 	}
 }
 

@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// InstalledCLI gates real-package transport smoke tests. They perform version
-// queries/handshakes only, never model inference or interactive authentication.
+// InstalledCLI gates real-package tests: version queries, handshakes, and private
+// sessions using a local mock provider, never upstream inference or login.
 func InstalledCLI(t testing.TB, name string) string {
 	t.Helper()
 	if os.Getenv("HARNESS_GATEWAY_TEST_INSTALLED_CLIS") != "1" {

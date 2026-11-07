@@ -34,7 +34,7 @@ func assertEventConsumersReleased(t *testing.T, baseline int) {
 	}
 }
 
-func TestLegacyCLIWithoutDetachStillDeletesSession(t *testing.T) {
+func TestLegacyCLIWithoutDetachStillReleasesConsumers(t *testing.T) {
 	h, log, _ := testHarness(t, "detach-unsupported")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -43,9 +43,8 @@ func TestLegacyCLIWithoutDetachStillDeletesSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	methods, err := os.ReadFile(log)
-	detach, deletion := strings.Index(string(methods), "session.detach\n"), strings.Index(string(methods), "session.delete\n")
-	if err != nil || detach < 0 || deletion <= detach {
-		t.Fatalf("legacy session was not detached then deleted: %s %v", methods, err)
+	if err != nil || !strings.Contains(string(methods), "session.detach\n") || strings.Contains(string(methods), "session.delete\n") {
+		t.Fatalf("legacy session must detach without touching the default profile: %s %v", methods, err)
 	}
 	assertEventConsumersReleased(t, baseline)
 }

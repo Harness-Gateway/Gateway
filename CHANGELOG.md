@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Isolate Copilot request state in private temporary directories and disable the
+  shared session store; remove state after stopping the CLI, including cancellation,
+  crashes, failed session creation, and cleanup failures.
+- Exercise persisted fixture state across failure paths and real installed Copilot
+  storage isolation using an offline local mock provider without account credentials.
+- Add a separate daily/manual compatibility canary for current public Codex/Copilot
+  releases on Linux, macOS, and Windows, retaining resolved versions and test logs.
+- Probe Copilot versions with `--no-auto-update`, matching the bundled runtime
+  used for requests instead of reporting a newer cached runtime.
+
 ## v0.1.6 - 2026-11-06
 
 - Retire Copilot SDK session event consumers before deleting completed sessions;

@@ -48,7 +48,13 @@ func queryHarnessVersion(ctx context.Context, name, executable string) (string, 
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	command := exec.Command(executable, "--version")
+	args := []string{"--version"}
+	if name == "copilot" {
+		// Match the adapter's bundled runtime, rather than a downloaded update
+		// selected from the CLI's shared cache during a plain --version query.
+		args = []string{"--no-auto-update", "--version"}
+	}
+	command := exec.Command(executable, args...)
 	command.WaitDelay = 200 * time.Millisecond
 	var output versionOutput
 	command.Stdout, command.Stderr = &output, io.Discard

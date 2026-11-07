@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	sdk "github.com/github/copilot-sdk/go"
@@ -20,6 +21,17 @@ type Harness struct {
 }
 
 func (h *Harness) Complete(ctx context.Context, request domain.Request, emit func(string) error) (result domain.Result, err error) {
+	// Cancellation/crashes can make session.delete impossible. Keep all session
+	// state in an owned directory, removed only after the CLI has been stopped.
+	state, err := os.MkdirTemp("", "harness-gateway-copilot-")
+	if err != nil {
+		return result, fmt.Errorf("create copilot state directory: %w", err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(state); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove copilot state directory: %w", cleanupErr))
+		}
+	}()
 	client, connection, stop, err := h.connect(ctx)
 	if err != nil {
 		return result, err
@@ -32,6 +44,7 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 	}
 	config := &sdk.SessionConfig{
 		Model: model, WorkingDirectory: h.Directory,
+		ConfigDirectory: state, EnableSessionStore: sdk.Bool(false),
 		Streaming: sdk.Bool(true), AvailableTools: []string{},
 		ReasoningEffort:        request.ReasoningEffort,
 		SkipCustomInstructions: sdk.Bool(true),
@@ -55,8 +68,7 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 		}
 		cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		// DeleteSession removes the SDK's registry entry without retiring its
-		// event consumer. Disconnect first so ForceStop cannot lose that owner.
+		// Retire the SDK event consumer before stopping the transport.
 		// Disconnect uses a background RPC context internally; closing our owned
 		// transport bounds it if a legacy/misbehaving CLI never answers.
 		stopOnDeadline := context.AfterFunc(cleanup, func() { _ = stop() })
@@ -85,18 +97,10 @@ func (h *Harness) Complete(ctx context.Context, request domain.Request, emit fun
 			}
 			return
 		}
-		// Older CLIs may reject detach; the SDK still retires local resources
-		// on that error. Preserve compatibility and delete their on-disk session.
-		if cleanupErr := client.DeleteSession(cleanup, session.SessionID); err == nil && cleanupErr != nil {
-			// Cancellation can stop the SDK after the check above but while
-			// session deletion is in flight. Preserve the request's cause so
-			// an intentional disconnect is not reported as an inference failure.
-			if ctx.Err() != nil {
-				err = ctx.Err()
-			} else {
-				err = fmt.Errorf("delete copilot session: %w", cleanupErr)
-			}
-		}
+		// Legacy runtimes may reject detach; the SDK still retires its local
+		// resources. Do not call session.delete: it resolves IDs in the default
+		// CLI profile, not ConfigDirectory. The outer defers stop this process
+		// and then remove only the request-owned directory.
 	}()
 	events := make(chan sdk.SessionEvent, 64)
 	eventCtx, stopEvents := context.WithCancel(ctx)

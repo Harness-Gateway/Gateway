@@ -171,7 +171,8 @@ narrow terminals, executable paths move below their rows without being clipped.
 The panel also shows working directory, concurrency, and timeout, and appears
 after the listener binds successfully.
 
-Startup queries each enabled executable with `--version`. Checks run in parallel,
+Startup queries each enabled executable with `--version` (Copilot also receives
+`--no-auto-update` to match the runtime used for requests). Checks run in parallel,
 are capped at two seconds each, and capture at most 4 KiB of output. Failed or
 unrecognized version checks show `unavailable` and log a warning; they do not
 prevent startup. Model settings show `CLI default` when no override was supplied.
@@ -388,6 +389,7 @@ artifacts and when `--output-dir` is supplied locally.
 | Instructions | Initial system/developer messages combined into CLI session instructions |
 | History | Prior user/assistant messages encoded as a role-labelled JSON transcript |
 | Sessions | A fresh backend session/process for every request; no cross-request state |
+| Copilot disk state | Request-owned temporary configuration/state; shared session store disabled; removed after CLI shutdown on success and failure |
 | `n` | Omitted, null, or `1` |
 | `reasoning_effort` | Forwarded to the CLI; support depends on the selected native model |
 | `stream_options.include_usage` | Supported; backend-reported token counts only |
@@ -483,7 +485,12 @@ Unicode, percent signs, exclamation marks, and other shell metacharacters.
 A separate CI matrix installs pinned public Codex/Copilot npm packages on Linux,
 macOS, and Windows into private directories whose paths contain spaces. It tests
 their real entry points, version output, and protocol handshakes without account
-credentials or inference. Authenticated inference remains a separate live
+credentials or upstream inference. Real Copilot storage tests use an offline local
+mock provider and a private CLI profile to verify session-state isolation on
+success, cancellation, and process termination. Fixture tests check that the
+gateway removes its state directories after failures, including failed creation,
+stalled detach, deadline expiry, and response-write errors.
+Authenticated inference remains a separate live
 acceptance gate; Windows inference has not been qualified.
 Real-package version diagnostics allow 20 seconds for cold CLI initialization.
 The startup panel keeps its two-second budget and may report `unavailable` for a
@@ -497,6 +504,20 @@ HARNESS_GATEWAY_TEST_INSTALLED_CLIS=1 go test -v -count=1 -run '^TestInstalledCL
 
 Ordinary `go test ./...` skips these real-package tests. The JavaScript launcher
 test uses Node.js when available; it skips when Node.js is absent.
+
+The separate **CLI compatibility canary** workflow runs daily at 06:17 UTC and
+can be started manually with `workflow_dispatch`. It installs the public npm
+`@latest` releases and runs the same installed-package checks on Linux, macOS,
+and Windows. Each run retains resolved package versions and Go test output for
+14 days. Canary failures are reported separately from the pinned validation
+matrix; they do not silently update the validated versions. Scheduled runs use
+GitHub's default branch and may start later than the scheduled time.
+
+Copilot state directories are private to individual requests and removed after
+the owned CLI stops, including when session deletion cannot complete. This does
+not erase the user's CLI profile or prevent the CLI's own operational logs.
+An abrupt gateway/host termination can leave temporary directories for normal OS
+temporary-file cleanup; graceful request cancellation and shutdown are covered.
 
 Versioned Go-install tests run outside the checkout on Linux, macOS, and Windows
 using an isolated local module proxy and private installation/module-cache

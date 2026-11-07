@@ -124,9 +124,9 @@ jobs:
           prefix="$RUNNER_TEMP/Harness CLI tools"
           npm install --global --prefix "$prefix" "@openai/codex@$HARNESS_GATEWAY_TEST_CODEX_VERSION" "@github/copilot@$HARNESS_GATEWAY_TEST_COPILOT_VERSION"
           printf '%s\n' "$prefix/bin" >> "$GITHUB_PATH"
-      - name: Test real npm shims, version probes, and protocol handshakes
+      - name: Test real launchers, handshakes, and isolated session storage
         shell: bash
-        run: go test -v -count=1 -timeout=2m -run '^TestInstalledCLI' ./cmd/harness-gateway ./internal/adapters/outbound/codex ./internal/adapters/outbound/copilot
+        run: go test -v -count=1 -timeout=3m -run '^TestInstalledCLI' ./cmd/harness-gateway ./internal/adapters/outbound/codex ./internal/adapters/outbound/copilot
 
   spring-ai-acceptance:
     timeout-minutes: 15
