@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Apply browser origin protection to model discovery GET/HEAD requests, including
+  cached catalogs, while retaining same-origin Scalar and headerless CLI clients.
+- Cache successful model catalogs for 30 seconds and share one bounded refresh
+  across concurrent callers. Preserve independent cancellation, stop abandoned
+  refreshes, and retain global CLI concurrency limits on cache misses.
+- Exercise discovery expiry, cancellation, failures, abnormal worker exits,
+  concurrent Java HTTP clients, and cold/warm browser-origin protection.
+- Publish descendant-test PID markers atomically so cancellation cannot expose
+  partially written PID data.
 - Isolate Copilot request state in private temporary directories and disable the
   shared session store; remove state after stopping the CLI, including cancellation,
   crashes, failed session creation, and cleanup failures.

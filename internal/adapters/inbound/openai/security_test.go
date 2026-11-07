@@ -84,3 +84,83 @@ func TestHostProtectionAlsoAppliesToSafeMethods(t *testing.T) {
 		}
 	}
 }
+
+func TestModelDiscoveryOriginProtection(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, tc := range []struct {
+			name, origin, site string
+			want               int
+		}{
+			{"non-browser", "", "", 200},
+			{"Scalar", "http://127.0.0.1:8080", "same-origin", 200},
+			{"same-origin-metadata", "", "same-origin", 200},
+			{"direct-navigation", "", "none", 200},
+			{"legacy-same-origin", "http://127.0.0.1:8080", "", 200},
+			{"cross-site-without-origin", "", "cross-site", 403},
+			{"cross-site", "https://foreign.example", "cross-site", 403},
+			{"same-site-without-origin", "", "same-site", 403},
+			{"different-local-port", "http://127.0.0.1:9090", "same-site", 403},
+			{"legacy-cross-origin", "https://foreign.example", "", 403},
+			{"opaque-origin", "null", "", 403},
+			{"malformed-origin", "://", "", 403},
+		} {
+			t.Run(method+"/"+tc.name, func(t *testing.T) {
+				calls := 0
+				backend := catalogBackend{list: func(context.Context) ([]string, error) {
+					calls++
+					return []string{"native"}, nil
+				}}
+				h := handler(backend, time.Second)
+				for _, path := range []string{"/v1/models", "/v1/%6dodels?test=1"} {
+					r := localRequest(method, path, nil)
+					r.Header.Set("Origin", tc.origin)
+					r.Header.Set("Sec-Fetch-Site", tc.site)
+					w := httptest.NewRecorder()
+					h.ServeHTTP(w, r)
+					if w.Code != tc.want {
+						t.Fatalf("%s %s: status=%d want=%d", method, path, w.Code, tc.want)
+					}
+					if r.Method != method {
+						t.Fatal("origin check modified the original HTTP method")
+					}
+					if tc.want == 403 && calls != 0 {
+						t.Fatal("cross-origin discovery reached the backend")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestCrossOriginDiscoveryCannotReadWarmCache(t *testing.T) {
+	calls := 0
+	h := handler(catalogBackend{list: func(context.Context) ([]string, error) {
+		calls++
+		return []string{"private-catalog"}, nil
+	}}, time.Second)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, localRequest(http.MethodGet, "/v1/models", nil))
+	if w.Code != 200 || calls != 1 {
+		t.Fatal("failed to populate catalog")
+	}
+	r := localRequest(http.MethodGet, "/v1/models", nil)
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 403 || calls != 1 || strings.Contains(w.Body.String(), "private-catalog") {
+		t.Fatalf("cross-origin cache access: %d %s calls=%d", w.Code, w.Body.String(), calls)
+	}
+}
+
+func TestCrossOriginDocumentationNavigationRemainsAllowed(t *testing.T) {
+	h := handler(catalogBackend{}, time.Second)
+	for _, path := range []string{"/", "/docs", "/health", "/openapi.json"} {
+		r := localRequest(http.MethodGet, path, nil)
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 200 && w.Code != 307 {
+			t.Fatalf("static navigation was rejected: %s %d", path, w.Code)
+		}
+	}
+}

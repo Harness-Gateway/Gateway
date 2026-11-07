@@ -4,8 +4,6 @@ package application
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/harness-gateway/harness-gateway/internal/domain"
@@ -27,6 +25,7 @@ type Backend struct {
 type Gateway struct {
 	backends map[string]Backend
 	slots    chan struct{}
+	catalog  modelCache
 }
 
 func New(backends []Backend, concurrency int) *Gateway {
@@ -44,38 +43,6 @@ func New(backends []Backend, concurrency int) *Gateway {
 		g.backends[backend.Model.ID] = backend
 	}
 	return g
-}
-
-func (g *Gateway) Models(ctx context.Context) ([]Model, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	select {
-	case g.slots <- struct{}{}:
-		defer func() { <-g.slots }()
-	default:
-		return nil, ErrBusy
-	}
-	models := make([]Model, 0, len(g.backends))
-	for _, backend := range g.backends {
-		models = append(models, backend.Model)
-		if catalog, ok := backend.Harness.(domain.ModelCatalog); ok {
-			native, err := catalog.Models(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("list %s models: %w", backend.Model.ID, err)
-			}
-			seen := map[string]bool{}
-			for _, id := range native {
-				if id == "" || seen[id] {
-					continue
-				}
-				seen[id] = true
-				models = append(models, Model{ID: backend.Model.ID + "/" + id, Provider: backend.Model.Provider})
-			}
-		}
-	}
-	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
-	return models, nil
 }
 
 // Complete routes an admitted request to its backend. accepted runs after routing

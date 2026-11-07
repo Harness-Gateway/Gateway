@@ -21,6 +21,7 @@ final class FixtureGateway implements AutoCloseable {
     private final Path log;
     private final Path turnStarted;
     private final Path catalogStarted;
+    private final Path catalogRelease;
     private final String url;
     private final Path directory;
     private final Path pids;
@@ -55,6 +56,7 @@ final class FixtureGateway implements AutoCloseable {
             : Path.of(System.getProperty("gateway.failure.pids"));
         turnStarted = directory.resolve("turn-started");
         catalogStarted = directory.resolve("catalog-started");
+        catalogRelease = directory.resolve("catalog-release");
         var args = new ArrayList<>(List.of(System.getProperty(measured ? "gateway.soak.executable" : "gateway.failure.executable"),
             "--listen", "127.0.0.1:0", "--harnesses", model,
             "--" + model + "-path", System.getProperty("gateway.failure." + model),
@@ -68,6 +70,7 @@ final class FixtureGateway implements AutoCloseable {
         env.put("HARNESS_GATEWAY_ACCEPTANCE_STARTUP", directory.resolve("startup-once").toString());
         env.put("HARNESS_GATEWAY_ACCEPTANCE_TURN", turnStarted.toString());
         env.put("HARNESS_GATEWAY_ACCEPTANCE_CATALOG", catalogStarted.toString());
+        env.put("HARNESS_GATEWAY_ACCEPTANCE_CATALOG_RELEASE", catalogRelease.toString());
         env.put("HARNESS_GATEWAY_COPILOT_LOG", directory.resolve("copilot-methods").toString());
         env.put("HARNESS_GATEWAY_COPILOT_PID", directory.resolve("copilot-pid").toString());
         process = builder.redirectErrorStream(true).redirectOutput(log.toFile()).start();
@@ -133,6 +136,10 @@ final class FixtureGateway implements AutoCloseable {
         if (process.exitValue() != 0) {
             throw new AssertionError("Gateway exited with " + process.exitValue() + ": " + Files.readString(log));
         }
+    }
+
+    void releaseModelDiscovery() throws Exception {
+        Files.writeString(catalogRelease, "release");
     }
 
     private String awaitReady() throws Exception {

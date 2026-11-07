@@ -21,6 +21,17 @@ func protectLocalRequests(next http.Handler) http.Handler {
 			deny.ServeHTTP(w, r)
 			return
 		}
+		if r.URL.Path == "/v1/models" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			// Discovery can start CLI processes. Apply the standard library's
+			// unsafe-method origin checks to these resource-consuming reads,
+			// using a copy so routing and HEAD semantics remain unchanged.
+			check := *r
+			check.Method = http.MethodPost
+			if err := protection.Check(&check); err != nil {
+				deny.ServeHTTP(w, r)
+				return
+			}
+		}
 		protected.ServeHTTP(w, r)
 	})
 }

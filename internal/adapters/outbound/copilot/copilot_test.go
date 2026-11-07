@@ -43,7 +43,11 @@ func TestMain(m *testing.M) {
 // delegates JSON-RPC methods and session events to the official SDK.
 func fixture(mode string) error {
 	if mode == "descendant-child" {
-		if err := os.WriteFile(os.Getenv("HARNESS_GATEWAY_COPILOT_CHILD"), []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+		marker := os.Getenv("HARNESS_GATEWAY_COPILOT_CHILD")
+		if err := os.WriteFile(marker+".tmp", []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+			return err
+		}
+		if err := os.Rename(marker+".tmp", marker); err != nil {
 			return err
 		}
 		time.Sleep(30 * time.Second)
@@ -262,13 +266,25 @@ func fixture(mode string) error {
 				return err
 			}
 		case "models.list":
-			if mode == "catalog-hold" {
+			if mode == "catalog-hold" || mode == "catalog-gate" {
 				if path := os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG"); path != "" {
 					if err := os.WriteFile(path, []byte("started"), 0600); err != nil {
 						return err
 					}
 				}
-				continue
+				if mode == "catalog-hold" {
+					continue
+				}
+				for {
+					_, err := os.Stat(os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG_RELEASE"))
+					if err == nil {
+						break
+					}
+					if !errors.Is(err, os.ErrNotExist) {
+						return err
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
 			}
 			if mode == "catalog-error" {
 				if err := reject(); err != nil {

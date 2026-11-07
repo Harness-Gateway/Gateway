@@ -21,6 +21,7 @@ func TestModelDiscoveryErrorClassification(t *testing.T) {
 		cause       error
 		failure     error
 		lateSuccess bool
+		panics      bool
 		timeout     bool
 		status      int
 		code, level string
@@ -33,6 +34,7 @@ func TestModelDiscoveryErrorClassification(t *testing.T) {
 		{name: "client-disconnect-transport-error", cause: context.Canceled, failure: errors.New("client stopped")},
 		{name: "busy", failure: application.ErrBusy, status: 429, code: "gateway_busy", level: "INFO", event: "model discovery rejected"},
 		{name: "cli-failure", failure: errors.New("private CLI detail"), status: 502, code: "model_discovery_failed", level: "ERROR", event: "model discovery failed"},
+		{name: "backend-panic", panics: true, status: 502, code: "model_discovery_failed", level: "ERROR", event: "model discovery failed"},
 		{name: "timeout", timeout: true, status: 504, code: "model_discovery_failed", level: "ERROR", event: "model discovery failed"},
 		{name: "timeout-transport-error", timeout: true, failure: errors.New("connection closed"), status: 504, code: "model_discovery_failed", level: "ERROR", event: "model discovery failed"},
 	} {
@@ -40,6 +42,9 @@ func TestModelDiscoveryErrorClassification(t *testing.T) {
 			ctx, cancel := context.WithCancelCause(t.Context())
 			defer cancel(context.Canceled)
 			backend := catalogBackend{list: func(ctx context.Context) ([]string, error) {
+				if test.panics {
+					panic("private CLI detail")
+				}
 				if test.timeout {
 					<-ctx.Done()
 				}

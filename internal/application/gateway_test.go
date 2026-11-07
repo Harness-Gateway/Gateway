@@ -189,8 +189,10 @@ func TestModelDiscoverySharesConcurrencyLimit(t *testing.T) {
 				}
 			}()
 			<-h.started
-			if _, err := g.Models(ctx); !errors.Is(err, ErrBusy) {
-				t.Fatalf("catalog escaped the process limit: %v", err)
+			if active == "completion" {
+				if _, err := g.Models(ctx); !errors.Is(err, ErrBusy) {
+					t.Fatalf("catalog escaped the process limit: %v", err)
+				}
 			}
 			if _, err := g.Complete(ctx, "test", domain.Request{}, nil, nil); !errors.Is(err, ErrBusy) {
 				t.Fatalf("completion escaped the process limit: %v", err)

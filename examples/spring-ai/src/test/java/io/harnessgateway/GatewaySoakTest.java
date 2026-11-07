@@ -60,7 +60,7 @@ class GatewaySoakTest {
         }, errors::add);
     }
 
-    private void round(FixtureGateway server, ChatClient client, HttpClient http) throws Exception {
+    private int round(FixtureGateway server, ChatClient client, HttpClient http) throws Exception {
         assertEquals("hello world", client.prompt().user("normal").call().content());
         assertEquals("hello world", client.prompt().user("normal").stream().content()
             .reduce("", String::concat).block(Duration.ofSeconds(10)));
@@ -73,10 +73,13 @@ class GatewaySoakTest {
         assertTrue(partial.contains("ready"));
         assertEquals(504, assertThrows(OpenAIServiceException.class,
             () -> client.prompt().user("silent").call().content()).statusCode());
+        var beforeCatalog = processes(server).size();
         var catalog = http.send(HttpRequest.newBuilder(URI.create(server.url() + "/models"))
             .timeout(Duration.ofSeconds(10)).build(), HttpResponse.BodyHandlers.ofString());
         assertEquals(200, catalog.statusCode());
         assertEquals(3, ((List<?>) JsonParserFactory.getJsonParser().parseMap(catalog.body()).get("data")).size());
+        int catalogStarts = processes(server).size() - beforeCatalog;
+        assertTrue(catalogStarts == 0 || catalogStarts == 1, "Discovery started duplicate CLI operations");
         assertEquals(List.of("ready"), client.prompt().user("hold").stream().content()
             .filter(text -> !text.isEmpty()).take(1).collectList().block(Duration.ofSeconds(10)));
         awaitIdle(server);
@@ -104,10 +107,11 @@ class GatewaySoakTest {
         awaitIdle(server);
         assertEquals("hello world", client.prompt().user("normal").call().content());
         awaitIdle(server);
-        assertEquals(10, processes(server).size(), "Unexpected number of admitted CLI operations");
+        assertEquals(9 + catalogStarts, processes(server).size(), "Unexpected number of admitted CLI operations");
         // Keep process accounting bounded and avoid PID-reuse false positives
         // during long runs. A marker is removed only after its CLI was reaped.
         for (var path : processes(server)) Files.delete(path);
+        return catalogStarts;
     }
 
     private record Sample(long rss, long heap, long objects, long goroutines, long descriptors) {}
@@ -144,24 +148,34 @@ class GatewaySoakTest {
              var http = HttpClient.newHttpClient();
              var csv = Files.newBufferedWriter(server.directory().resolve("soak.csv"))) {
             var client = context.getBean(ChatClient.Builder.class).defaultSystem("Be brief").build();
-            for (int warmup = 0; warmup < 2; warmup++) round(server, client, http);
+            long refreshes = 0;
+            long cacheHits = 0;
+            for (int warmup = 0; warmup < 2; warmup++) {
+                int starts = round(server, client, http);
+                refreshes += starts;
+                cacheHits += 1 - starts;
+            }
             var baseline = sample(server);
             var samples = new ArrayList<Sample>();
             var started = System.nanoTime();
             long requests = 36;
-            csv.write("elapsed_seconds,requests,rss_bytes,post_gc_heap_bytes,heap_objects,goroutines,descriptors,live_clis,jvm_heap_bytes\n");
+            csv.write("elapsed_seconds,requests,rss_bytes,post_gc_heap_bytes,heap_objects,goroutines,descriptors,live_clis,jvm_heap_bytes,catalog_refreshes,catalog_cache_hits\n");
             do {
-                round(server, client, http);
+                int starts = round(server, client, http);
+                refreshes += starts;
+                cacheHits += 1 - starts;
                 requests += 18;
                 var current = sample(server);
                 samples.add(current);
-                csv.write(String.format(java.util.Locale.ROOT, "%.3f,%d,%d,%d,%d,%d,%d,0,%d%n",
+                csv.write(String.format(java.util.Locale.ROOT, "%.3f,%d,%d,%d,%d,%d,%d,0,%d,%d,%d%n",
                     (System.nanoTime() - started) / 1_000_000_000.0, requests, current.rss, current.heap,
                     current.objects, current.goroutines, current.descriptors,
-                    ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed()));
+                    ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed(), refreshes, cacheHits));
                 csv.flush();
                 assertBounded(baseline, current);
             } while (System.nanoTime() - started < Duration.ofSeconds(seconds).toNanos());
+            assertTrue(cacheHits > 0, "Repeated discovery never used the cache");
+            if (seconds >= 60) assertTrue(refreshes >= 2, "Catalog never refreshed after expiry");
             if (samples.size() >= 6) {
                 var early = samples.subList(0, 3);
                 var late = samples.subList(samples.size() - 3, samples.size());
@@ -174,8 +188,8 @@ class GatewaySoakTest {
             awaitIdle(server);
             server.terminate();
             server.awaitExit();
-            System.out.printf("Fixture soak %s: duration=%ds requests=%d samples=%d baseline=%s final=%s CSV=%s%n",
-                model, seconds, requests + 1, samples.size(), baseline, samples.getLast(), server.directory().resolve("soak.csv"));
+            System.out.printf("Fixture soak %s: duration=%ds requests=%d samples=%d catalog_refreshes=%d catalog_cache_hits=%d baseline=%s final=%s CSV=%s%n",
+                model, seconds, requests + 1, samples.size(), refreshes, cacheHits, baseline, samples.getLast(), server.directory().resolve("soak.csv"));
         }
     }
 }

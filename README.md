@@ -130,8 +130,15 @@ uses Codex's documented `model/list` with pagination and the Copilot SDK's
 disabled Copilot models are omitted. A listed model remains subject to account
 permissions and availability when inference runs. Discovery has a 20-second cap
 (or the configured timeout if shorter); a discovery failure returns an error.
-Discovery and completion requests share the configured concurrency limit; excess
-requests receive HTTP 429 instead of spawning more CLI processes.
+Successful model catalogs are cached in memory for 30 seconds after discovery
+completes. Concurrent cache misses share one refresh and one CLI capacity slot.
+Cold or expired refreshes share the configured concurrency limit with completions;
+when capacity is full, they return HTTP 429. Cache hits need no CLI capacity.
+Failed, partial, or abandoned refreshes are not cached, and expired results are
+not served after a refresh failure. Each caller can cancel independently; the
+last caller cancels the shared refresh and waits for its CLI cleanup. A refresh
+has its own 20-second deadline, even if new callers keep joining it. Responses
+use `Cache-Control: no-store` to prevent additional caching by HTTP clients.
 
 ```bash
 curl http://127.0.0.1:8080/v1/models
@@ -349,7 +356,10 @@ initialization and silent inference, and send SIGTERM during buffered and
 streaming requests (before and after text). Tests check actual child PIDs are
 reaped and a subsequent request succeeds, proving the concurrency slot is released.
 Model-discovery cases verify that overload spawns no extra CLI and SIGTERM returns
-HTTP 503 while stopping the active discovery process.
+HTTP 503 while stopping the active discovery process. Concurrent Java HTTP clients
+share discovery, one cancelled client leaves the others running, and cached lists
+remain available during an active Spring AI completion. Cold and warm catalogs
+both reject cross-origin GET/HEAD requests before CLI startup.
 
 On Linux, `GatewayStressTest` adds 66 requests per harness, mixing buffered and
 streaming success, injected crashes, cancellation, recovery, and ten-client
@@ -373,7 +383,9 @@ quiescent sample. Java also records gateway RSS, `/proc` file descriptors, live
 CLI counts, and its own JVM heap usage in a per-gateway `soak.csv`. JVM heap is
 observational; gateway metrics are checked against explicit allowances for HTTP
 pools and runtime caches, with additional early/late plateau checks for runs with
-at least six samples. These are bounded resource-regression checks, not a proof
+at least six samples. CSV rows also count catalog refreshes and cache hits; runs
+of at least a minute verify that expired catalogs refresh again. These are
+bounded resource-regression checks, not a proof
 that every possible memory leak is absent. The distributed gateway gains no
 metrics/debug endpoint. Logs, CSV samples, and XML reports are retained in CI
 artifacts and when `--output-dir` is supplied locally.
@@ -382,7 +394,7 @@ artifacts and when `--output-dir` is supplied locally.
 
 | Feature | MVP behavior |
 | --- | --- |
-| `GET /v1/models` | Discovers native model IDs, namespaced by harness, plus the default aliases |
+| `GET /v1/models` | Native IDs plus default aliases; successful results cached for 30 seconds; concurrent refreshes shared |
 | `POST /v1/chat/completions` | Buffered JSON or SSE with `stream=true` |
 | Messages | `system`, `developer`, `user`, `assistant`; final message must be `user` |
 | Content | Strings or nonempty arrays of `{ "type": "text", "text": "..." }` |
@@ -398,7 +410,7 @@ artifacts and when `--output-dir` is supplied locally.
 | Limits | 1 MiB request; 16 MiB UTF-8 assistant text before JSON/SSE encoding; bounded concurrency and duration |
 | Slow readers | Ten-second socket-write budget for buffered JSON and each SSE write |
 | HTTP validation | Oversized bodies return 413, including trailing whitespace; unsupported methods on API endpoints return 405 with `Allow` |
-| Local access | Host must be `localhost` or a loopback IP; cross-origin browser completion requests return 403. No auth is required for curl or Spring AI |
+| Local access | Host must be `localhost` or a loopback IP; cross-origin browser completions and model GET/HEAD requests return 403. No auth is required for curl or Spring AI |
 | Harness request errors | Explicit JSON-RPC invalid-parameter rejections and Copilot structured upstream HTTP 400 invalid-request errors return sanitized 400 errors; unclassified CLI failures return 502 |
 | Cancellation | HTTP disconnect/deadline stops the request-owned CLI process |
 | Other request fields | Rejected with HTTP 400 and an OpenAI-style error envelope |
@@ -541,7 +553,8 @@ Go CLI fixtures. It checks model discovery, buffered and streamed responses,
 output before stream completion, cancellation and actual CLI process cleanup,
 capacity recovery, error display, custom ports, mobile rendering, and absence of
 off-origin requests from Scalar. A separate browser origin verifies no-CORS Blob
-POSTs return 403 without starting a CLI. These tests need no logged-in harnesses. Reports, gateway
+POSTs and model GET/HEAD requests return 403 without starting a CLI, including
+when the model catalog is already cached. These tests need no logged-in harnesses. Reports, gateway
 logs, and screenshots are uploaded as the `scalar-browser-acceptance` artifact.
 Authenticated live acceptance remains a local gate, separate from CI.
 

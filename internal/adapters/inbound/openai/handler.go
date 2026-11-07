@@ -64,7 +64,7 @@ func registerAPI(mux *http.ServeMux, method, path string, handler http.HandlerFu
 }
 
 func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), min(h.timeout, 20*time.Second))
+	ctx, cancel := context.WithTimeout(r.Context(), min(h.timeout, application.ModelDiscoveryTimeout))
 	defer cancel()
 	models, err := h.gateway.Models(ctx)
 	if contextErr := ctx.Err(); contextErr != nil {
@@ -95,6 +95,7 @@ func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
 	for _, model := range models {
 		response.Data = append(response.Data, Model{Id: model.ID, Object: "model", OwnedBy: model.Provider})
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, response)
 }
 

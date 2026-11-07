@@ -1,5 +1,9 @@
 package io.harnessgateway;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
@@ -8,6 +12,7 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.api.Test;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -23,6 +28,7 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.json.JsonParserFactory;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Import;
 
@@ -51,6 +57,31 @@ class GatewayTest {
 
     private ChatClient client(ConfigurableApplicationContext context) {
         return context.getBean(ChatClient.Builder.class).build();
+    }
+
+    @Test
+    void modelCatalogWorksWithAuthenticatedHarnesses() throws Exception {
+        var url = System.getProperty("gateway.url", "http://127.0.0.1:8080/v1") + "/models";
+        try (var http = HttpClient.newHttpClient()) {
+            var request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(25)).build();
+            var first = http.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, first.statusCode(), first::body);
+            assertEquals("no-store", first.headers().firstValue("Cache-Control").orElseThrow());
+            var catalog = JsonParserFactory.getJsonParser().parseMap(first.body());
+            assertEquals("list", catalog.get("object"));
+            var entries = (List<?>) catalog.get("data");
+            for (var alias : models().map(model -> model.split("/", 2)[0]).distinct().toList()) {
+                assertTrue(entries.stream().anyMatch(entry -> alias.equals(((java.util.Map<?, ?>) entry).get("id"))),
+                    "Authenticated model catalog omitted " + alias);
+            }
+            var cached = http.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, cached.statusCode(), cached::body);
+            assertEquals(first.body(), cached.body());
+            var head = http.send(HttpRequest.newBuilder(request.uri()).timeout(Duration.ofSeconds(5))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, head.statusCode());
+            assertEquals("", head.body());
+        }
     }
 
     @ParameterizedTest

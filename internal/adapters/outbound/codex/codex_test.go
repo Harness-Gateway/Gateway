@@ -32,7 +32,12 @@ func TestMain(m *testing.M) {
 
 func fakeServer(mode string) {
 	if mode == "descendant-child" {
-		if err := os.WriteFile(os.Getenv("HARNESS_GATEWAY_CODEX_CHILD"), []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+		marker := os.Getenv("HARNESS_GATEWAY_CODEX_CHILD")
+		if err := os.WriteFile(marker+".tmp", []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+			os.Exit(31)
+		}
+		// Publish only complete PID data before the parent can cancel this child.
+		if err := os.Rename(marker+".tmp", marker); err != nil {
 			os.Exit(31)
 		}
 		time.Sleep(30 * time.Second)
@@ -154,13 +159,25 @@ func fakeServer(mode string) {
 			if input.Params["includeHidden"] != false {
 				os.Exit(11)
 			}
-			if mode == "catalog-hold" {
+			if mode == "catalog-hold" || mode == "catalog-gate" {
 				if path := os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG"); path != "" {
 					if err := os.WriteFile(path, []byte("started"), 0600); err != nil {
 						os.Exit(21)
 					}
 				}
-				continue
+				if mode == "catalog-hold" {
+					continue
+				}
+				for {
+					_, err := os.Stat(os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG_RELEASE"))
+					if err == nil {
+						break
+					}
+					if !errors.Is(err, os.ErrNotExist) {
+						os.Exit(22)
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
 			}
 			if mode == "catalog-error" {
 				write(map[string]any{"id": input.ID, "error": map[string]string{"message": "fixture catalog failure"}})

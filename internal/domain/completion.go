@@ -38,6 +38,8 @@ type Harness interface {
 
 // ModelCatalog is an optional discovery port for harnesses with a documented
 // native model-list interface. Catalog entries are not an entitlement guarantee.
+// Implementations must honor cancellation and release discovery resources before
+// returning, as required for Harness.Complete.
 type ModelCatalog interface {
 	Models(context.Context) ([]string, error)
 }

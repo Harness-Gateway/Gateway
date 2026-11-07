@@ -202,10 +202,15 @@ class GatewayFailureTest {
             try {
                 awaitNewProcess(count);
                 server.awaitModelDiscoveryStarted();
-                var rejected = http.send(request, HttpResponse.BodyHandlers.ofString());
+                var completion = HttpRequest.newBuilder(URI.create(server.url() + "/chat/completions"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"model\":\"" + model
+                        + "\",\"messages\":[{\"role\":\"user\",\"content\":\"normal\"}]}"))
+                    .timeout(Duration.ofSeconds(5)).build();
+                var rejected = http.send(completion, HttpResponse.BodyHandlers.ofString());
                 assertEquals(429, rejected.statusCode());
                 assertTrue(rejected.body().contains("\"code\":\"gateway_busy\""), rejected::body);
-                assertEquals(count + 1, pids().size(), "Rejected discovery spawned another CLI");
+                assertEquals(count + 1, pids().size(), "Rejected completion spawned another CLI");
                 assertFalse(response.isDone(), "Discovery should still be waiting for the CLI");
                 server.terminate();
                 var interrupted = response.get(8, TimeUnit.SECONDS);
@@ -217,6 +222,94 @@ class GatewayFailureTest {
             finally {
                 response.cancel(true);
             }
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("models")
+    void modelDiscoveryCoalescesAcrossHttpClients(String model) throws Exception {
+        try (var server = new FixtureGateway(model, "catalog-gate"); var http = HttpClient.newHttpClient()) {
+            var before = pids().size();
+            var request = HttpRequest.newBuilder(URI.create(server.url() + "/models"))
+                .timeout(Duration.ofSeconds(10)).build();
+            var requests = new java.util.ArrayList<java.util.concurrent.CompletableFuture<HttpResponse<String>>>();
+            requests.add(http.sendAsync(request, HttpResponse.BodyHandlers.ofString()));
+            try {
+                server.awaitModelDiscoveryStarted();
+                for (int i = 0; i < 24; i++) requests.add(http.sendAsync(request, HttpResponse.BodyHandlers.ofString()));
+                // The original caller remains active; cancelling another HTTP
+                // request must not retire its shared discovery process.
+                requests.getLast().cancel(true);
+                server.releaseModelDiscovery();
+                String body = null;
+                for (var response : requests.subList(0, requests.size() - 1)) {
+                    var result = response.get(8, TimeUnit.SECONDS);
+                    assertEquals(200, result.statusCode(), result::body);
+                    assertEquals("no-store", result.headers().firstValue("Cache-Control").orElseThrow());
+                    if (body == null) body = result.body();
+                    else assertEquals(body, result.body());
+                }
+                assertEquals(before + 1, pids().size(), "Concurrent model listings restarted the CLI");
+                var warm = http.send(request, HttpResponse.BodyHandlers.ofString());
+                assertEquals(body, warm.body());
+                assertEquals(before + 1, pids().size(), "Cached model listing started a CLI");
+                awaitProcessesStopped();
+            }
+            finally {
+                requests.forEach(response -> response.cancel(true));
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("models")
+    void cachedDiscoveryWorksWhileSpringAiCompletionOwnsCapacity(String model) throws Exception {
+        try (var server = new FixtureGateway(model, "acceptance");
+             var http = HttpClient.newHttpClient(); var context = application(model, server.url())) {
+            var catalog = HttpRequest.newBuilder(URI.create(server.url() + "/models"))
+                .timeout(Duration.ofSeconds(5)).build();
+            for (boolean warm : new boolean[]{false, true}) {
+                if (warm) assertEquals(200, http.send(catalog, HttpResponse.BodyHandlers.ofString()).statusCode());
+                var before = pids().size();
+                for (String method : List.of("GET", "HEAD")) {
+                    for (String header : List.of("Origin", "Sec-Fetch-Site")) {
+                        var forbidden = HttpRequest.newBuilder(catalog.uri())
+                            .header(header, header.equals("Origin") ? "https://foreign.example" : "cross-site")
+                            .method(method, HttpRequest.BodyPublishers.noBody()).build();
+                        var response = http.send(forbidden, HttpResponse.BodyHandlers.ofString());
+                        assertEquals(403, response.statusCode(), "Cross-origin discovery with warm=" + warm);
+                    }
+                }
+                assertEquals(before, pids().size(), "Forbidden discovery started a CLI");
+            }
+            var client = client(context);
+            var ready = new CountDownLatch(1);
+            var errors = new CopyOnWriteArrayList<Throwable>();
+            var subscription = client.prompt().user("hold").stream().content()
+                .filter(text -> !text.isEmpty()).subscribe(text -> ready.countDown(), errors::add);
+            try {
+                assertTrue(ready.await(5, TimeUnit.SECONDS), "Spring AI completion did not start: " + errors);
+                var before = pids().size();
+                var requests = java.util.stream.IntStream.range(0, 16)
+                    .mapToObj(i -> http.sendAsync(catalog, HttpResponse.BodyHandlers.ofString())).toList();
+                for (var request : requests) {
+                    var response = request.get(5, TimeUnit.SECONDS);
+                    assertEquals(200, response.statusCode(), response::body);
+                    assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+                }
+                var head = http.send(HttpRequest.newBuilder(catalog.uri())
+                    .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, head.statusCode());
+                assertEquals("", head.body());
+                assertEquals(before, pids().size(), "Cache hits competed with the active completion");
+                assertTrue(errors.isEmpty(), "Discovery interrupted the completion: " + errors);
+            }
+            finally {
+                subscription.dispose();
+            }
+            awaitProcessesStopped();
+            assertGatewayReusable(client);
+            awaitProcessesStopped();
         }
     }
 

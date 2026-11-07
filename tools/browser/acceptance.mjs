@@ -100,6 +100,30 @@ try {
     assert.equal((await rejected).status(), 403);
     assert.deepEqual(await readdir(`${runtime}/pids`), pidsBefore, 'cross-origin POST started a CLI');
     report.cases.push('cross-origin no-CORS Blob POST is denied before CLI startup');
+    for (const cached of [false, true]) {
+      if (cached) {
+        const trusted = await page.evaluate(async () => {
+          const response = await fetch('/v1/models', { cache: 'no-store' });
+          return { status: response.status, body: await response.json() };
+        });
+        assert.equal(trusted.status, 200);
+        assert(trusted.body.data.some(model => model.id === 'codex/native-one'));
+        await until(async () => (await liveCLIs()).length === 0, 'trusted discovery cleanup');
+      }
+      const before = await readdir(`${runtime}/pids`);
+      for (const method of ['GET', 'HEAD']) {
+        const denied = attackerPage.waitForResponse(response =>
+          response.url() === `${base}/v1/models` && response.request().method() === method);
+        const status = await attackerPage.evaluate(async ({ base, method }) => {
+          const response = await fetch(`${base}/v1/models`, { method, mode: 'no-cors', cache: 'no-store' });
+          return response.status;
+        }, { base, method });
+        assert.equal(status, 0);
+        assert.equal((await denied).status(), 403);
+        assert.deepEqual(await readdir(`${runtime}/pids`), before, `cross-origin ${method} started a CLI`);
+      }
+      report.cases.push(`cross-origin model GET/HEAD denied with ${cached ? 'warm' : 'cold'} gateway cache`);
+    }
   } finally {
     await attackerContext.close();
     await new Promise((resolve, reject) => attacker.close(error => error ? reject(error) : resolve()));
