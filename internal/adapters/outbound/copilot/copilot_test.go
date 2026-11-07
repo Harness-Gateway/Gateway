@@ -285,6 +285,13 @@ func fixture(mode string) error {
 					}
 					time.Sleep(5 * time.Millisecond)
 				}
+				release, err := os.ReadFile(os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG_RELEASE"))
+				if err != nil {
+					return err
+				}
+				if string(release) == "error" {
+					mode = "catalog-error"
+				}
 			}
 			if mode == "catalog-error" {
 				if err := reject(); err != nil {

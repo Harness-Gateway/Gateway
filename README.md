@@ -360,6 +360,9 @@ HTTP 503 while stopping the active discovery process. Concurrent Java HTTP clien
 share discovery, one cancelled client leaves the others running, and cached lists
 remain available during an active Spring AI completion. Cold and warm catalogs
 both reject cross-origin GET/HEAD requests before CLI startup.
+Additional HTTP regressions cover shared discovery shutdown with concurrent
+GET/HEAD clients, real 30-second cache expiry, failed-refresh errors without stale
+results, and one shared recovery refresh for concurrent clients.
 
 On Linux, `GatewayStressTest` adds 66 requests per harness, mixing buffered and
 streaming success, injected crashes, cancellation, recovery, and ten-client

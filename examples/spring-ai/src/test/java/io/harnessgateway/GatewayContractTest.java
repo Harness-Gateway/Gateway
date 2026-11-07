@@ -271,6 +271,56 @@ class GatewayContractTest {
 
     @ParameterizedTest
     @MethodSource("models")
+    void catalogExpiryFailureAndConcurrentRecoveryThroughHttp(String model) throws Exception {
+        try (var server = new FixtureGateway(model, "catalog-gate"); var http = HttpClient.newHttpClient()) {
+            server.releaseModelDiscovery();
+            var before = server.startedCliCount();
+            var request = HttpRequest.newBuilder(URI.create(server.url() + "/models"))
+                .timeout(Duration.ofSeconds(5)).build();
+            var first = http.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, first.statusCode(), first::body);
+            assertEquals("no-store", first.headers().firstValue("Cache-Control").orElseThrow());
+            assertEquals(before + 1, server.startedCliCount());
+
+            server.failModelDiscovery();
+            var headRequest = HttpRequest.newBuilder(request.uri()).timeout(Duration.ofSeconds(5))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody()).build();
+            var head = http.send(headRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, head.statusCode());
+            assertEquals("", head.body());
+            var warm = http.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(first.body(), warm.body());
+            assertEquals(before + 1, server.startedCliCount(), "Warm GET/HEAD restarted discovery");
+
+            // Exercise the real server clock and CLI lifecycle without adding
+            // a production cache-TTL flag or test-only HTTP endpoint.
+            Thread.sleep(Duration.ofSeconds(31));
+            var expired = http.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(502, expired.statusCode(), expired::body);
+            var error = (Map<?, ?>) record(expired.body()).get("error");
+            assertEquals("model_discovery_failed", error.get("code"));
+            assertEquals("server_error", error.get("type"));
+            assertFalse(expired.body().contains("native-one"), "Expired catalog was served after refresh failure");
+            assertEquals(before + 2, server.startedCliCount(), "Expired catalog did not attempt refresh");
+
+            server.releaseModelDiscovery();
+            var recovering = java.util.stream.IntStream.range(0, 16)
+                .mapToObj(i -> http.sendAsync(request, HttpResponse.BodyHandlers.ofString())).toList();
+            for (var response : recovering) {
+                var result = response.get(8, java.util.concurrent.TimeUnit.SECONDS);
+                assertEquals(200, result.statusCode(), result::body);
+                assertEquals(first.body(), result.body());
+            }
+            assertEquals(before + 3, server.startedCliCount(), "Recovery was cached as a failure or restarted per client");
+            head = http.send(headRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, head.statusCode());
+            assertEquals("", head.body());
+            assertEquals(before + 3, server.startedCliCount(), "Recovered HEAD did not use the new cache");
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("models")
     void unsupportedWireFeaturesReturnErrorsWithoutStartingCli(String model) throws Exception {
         try (var server = new FixtureGateway(model, "contract"); var http = HttpClient.newHttpClient()) {
             long before;

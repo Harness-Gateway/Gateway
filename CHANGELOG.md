@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add concurrent HTTP model-discovery shutdown regressions and real-time catalog
+  expiry, failed-refresh, and concurrent-recovery checks for both harnesses.
 - Apply browser origin protection to model discovery GET/HEAD requests, including
   cached catalogs, while retaining same-origin Scalar and headerless CLI clients.
 - Cache successful model catalogs for 30 seconds and share one bounded refresh

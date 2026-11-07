@@ -91,6 +91,10 @@ final class FixtureGateway implements AutoCloseable {
 
     Path pidsDirectory() { return pids; }
 
+    long startedCliCount() throws Exception {
+        try (var files = Files.list(pids)) { return files.count(); }
+    }
+
     Map<String, Object> sampleResources() throws Exception {
         var request = Long.toString(++sampleSequence);
         Files.writeString(Path.of(metrics + ".request"), request);
@@ -140,6 +144,10 @@ final class FixtureGateway implements AutoCloseable {
 
     void releaseModelDiscovery() throws Exception {
         Files.writeString(catalogRelease, "release");
+    }
+
+    void failModelDiscovery() throws Exception {
+        Files.writeString(catalogRelease, "error");
     }
 
     private String awaitReady() throws Exception {

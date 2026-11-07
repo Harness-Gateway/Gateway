@@ -178,6 +178,13 @@ func fakeServer(mode string) {
 					}
 					time.Sleep(5 * time.Millisecond)
 				}
+				release, err := os.ReadFile(os.Getenv("HARNESS_GATEWAY_ACCEPTANCE_CATALOG_RELEASE"))
+				if err != nil {
+					os.Exit(22)
+				}
+				if string(release) == "error" {
+					mode = "catalog-error"
+				}
 			}
 			if mode == "catalog-error" {
 				write(map[string]any{"id": input.ID, "error": map[string]string{"message": "fixture catalog failure"}})
